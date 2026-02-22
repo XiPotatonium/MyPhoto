@@ -1,160 +1,202 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { provide, ref, onMounted, onUnmounted } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { useAppState } from './stores/appState'
+import TopFilterBar from './components/layout/TopFilterBar.vue'
+import LeftPanel from './components/layout/LeftPanel.vue'
+import CenterPanel from './components/layout/CenterPanel.vue'
+import RightPanel from './components/layout/RightPanel.vue'
+import DirectoryTree from './components/directory/DirectoryTree.vue'
+import ImageBrowser from './components/browser/ImageBrowser.vue'
+import ImageViewer from './components/viewer/ImageViewer.vue'
+import FormatTabBar from './components/viewer/FormatTabBar.vue'
+import ExifDisplay from './components/info/ExifDisplay.vue'
+import RatingControl from './components/info/RatingControl.vue'
+import ConfirmDialog from './components/common/ConfirmDialog.vue'
 
-const greetMsg = ref("");
-const name = ref("");
+const appState = useAppState()
+provide('appState', appState)
 
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+const imageBrowserRef = ref<InstanceType<typeof ImageBrowser> | null>(null)
+const ratingControlRef = ref<InstanceType<typeof RatingControl> | null>(null)
+
+function onKeyDown(e: KeyboardEvent) {
+  // Ignore if user is typing in an input
+  const target = e.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+    return
+  }
+
+  // Arrow keys: navigate images
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    imageBrowserRef.value?.navigateImage(-1)
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    imageBrowserRef.value?.navigateImage(1)
+  }
+
+  // Delete key: delete selected images
+  if (e.key === 'Delete' && appState.state.currentImage) {
+    e.preventDefault()
+    handleDelete()
+  }
+
+  // 0-5: set rating
+  if (e.key >= '0' && e.key <= '5' && appState.state.currentImage) {
+    e.preventDefault()
+    ratingControlRef.value?.setRating(parseInt(e.key))
+  }
 }
+
+function handleDelete() {
+  const image = appState.state.currentImage
+  if (!image) return
+
+  const hasJpg = !!image.jpgPath
+  const hasRaw = !!image.rawPath
+  const hasBoth = hasJpg && hasRaw
+
+  const options: { label: string; value: string }[] = []
+  if (hasBoth) {
+    options.push({ label: '仅删除 JPG', value: 'jpg' })
+    options.push({ label: '仅删除 RAW', value: 'raw' })
+    options.push({ label: '全部删除', value: 'all' })
+  } else {
+    options.push({ label: '确认删除', value: 'all' })
+  }
+
+  appState.showConfirmDialog(
+    '删除确认',
+    `确定要删除 "${image.baseName}" 吗？文件将被移动到回收站。`,
+    options,
+    async (value: string) => {
+      const paths: string[] = []
+      if ((value === 'jpg' || value === 'all') && image.jpgPath) {
+        paths.push(image.jpgPath)
+      }
+      if ((value === 'raw' || value === 'all') && image.rawPath) {
+        paths.push(image.rawPath)
+      }
+      if (paths.length > 0) {
+        try {
+          await invoke('move_to_trash', { paths })
+          // Refresh the browser after deletion
+          imageBrowserRef.value?.navigateImage(0)
+        } catch (err) {
+          console.error('Failed to delete:', err)
+        }
+      }
+    },
+  )
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
-
-    <div class="row">
-      <a href="https://vitejs.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
+  <div class="app-container">
+    <TopFilterBar
+      :sort-field="appState.state.sortField"
+      :sort-order="appState.state.sortOrder"
+      @update:sort-field="appState.setSortField"
+      @update:sort-order="appState.setSortOrder"
+    />
+    <div class="main-layout">
+      <div class="left-panel-container">
+        <LeftPanel>
+          <template #tree>
+            <DirectoryTree
+              :root-path="appState.state.rootPath"
+              @folder-selected="appState.setSelectedFolder"
+              @root-changed="appState.setRootPath"
+            />
+          </template>
+          <template #browser>
+            <ImageBrowser
+              ref="imageBrowserRef"
+              :selected-folder="appState.state.selectedFolder"
+              :sort-field="appState.state.sortField"
+              :sort-order="appState.state.sortOrder"
+              @image-selected="appState.setCurrentImage"
+            />
+          </template>
+        </LeftPanel>
+      </div>
+      <div class="center-panel-container">
+        <CenterPanel>
+          <FormatTabBar
+            v-if="appState.state.currentImage"
+            :image="appState.state.currentImage"
+            :current-format="appState.state.currentFormat"
+            @update:format="appState.setCurrentFormat"
+          />
+          <ImageViewer
+            :image="appState.state.currentImage"
+            :format="appState.state.currentFormat"
+          />
+        </CenterPanel>
+      </div>
+      <div class="right-panel-container">
+        <RightPanel>
+          <ExifDisplay :image="appState.state.currentImage" />
+          <RatingControl ref="ratingControlRef" :image="appState.state.currentImage" />
+        </RightPanel>
+      </div>
     </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
-
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+    <ConfirmDialog
+      :visible="appState.state.confirmDialog.visible"
+      :title="appState.state.confirmDialog.title"
+      :message="appState.state.confirmDialog.message"
+      :options="appState.state.confirmDialog.options"
+      @confirm="(v: string) => { appState.state.confirmDialog.onConfirm(v); appState.hideConfirmDialog() }"
+      @cancel="appState.hideConfirmDialog"
+    />
+  </div>
 </template>
 
 <style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
-}
-
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
+.app-container {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
+.main-layout {
   display: flex;
-  justify-content: center;
+  flex: 1;
+  overflow: hidden;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+.left-panel-container {
+  width: var(--left-panel-width);
+  min-width: 200px;
+  max-width: 500px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  overflow: hidden;
 }
 
-a:hover {
-  color: #535bf2;
+.center-panel-container {
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
 }
 
-h1 {
-  text-align: center;
+.right-panel-container {
+  width: var(--right-panel-width);
+  min-width: 200px;
+  max-width: 400px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
 }
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
 </style>
