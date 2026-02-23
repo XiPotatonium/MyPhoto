@@ -11,14 +11,13 @@ import ImageBrowser from './components/browser/ImageBrowser.vue'
 import ImageViewer from './components/viewer/ImageViewer.vue'
 import FormatTabBar from './components/viewer/FormatTabBar.vue'
 import ExifDisplay from './components/info/ExifDisplay.vue'
-import RatingControl from './components/info/RatingControl.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 
 const appState = useAppState()
 provide('appState', appState)
 
 const imageBrowserRef = ref<InstanceType<typeof ImageBrowser> | null>(null)
-const ratingControlRef = ref<InstanceType<typeof RatingControl> | null>(null)
+const exifDisplayRef = ref<InstanceType<typeof ExifDisplay> | null>(null)
 
 function onKeyDown(e: KeyboardEvent) {
   // Ignore if user is typing in an input
@@ -45,7 +44,7 @@ function onKeyDown(e: KeyboardEvent) {
   // 0-5: set rating
   if (e.key >= '0' && e.key <= '5' && appState.state.currentImage) {
     e.preventDefault()
-    ratingControlRef.value?.setRating(parseInt(e.key))
+    exifDisplayRef.value?.setRating(parseInt(e.key))
   }
 }
 
@@ -146,7 +145,6 @@ onUnmounted(() => {
       <div class="right-panel-container">
         <RightPanel>
           <ExifDisplay :image="appState.state.currentImage" />
-          <RatingControl ref="ratingControlRef" :image="appState.state.currentImage" />
         </RightPanel>
       </div>
     </div>

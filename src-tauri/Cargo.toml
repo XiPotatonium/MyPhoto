@@ -29,6 +29,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 
 # EXIF read/write
 kamadak-exif = "0.5"
+little_exif = "0.5"
 
 # Directory traversal
 walkdir = "2"

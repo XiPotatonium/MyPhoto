@@ -4,6 +4,12 @@ use std::path::Path;
 
 use crate::models::exif::ExifInfo;
 
+// little_exif imports for writing EXIF data
+use little_exif::metadata::Metadata;
+use little_exif::exif_tag::{ExifTag, ExifTagGroup};
+use little_exif::exif_tag_format::ExifTagFormat;
+use little_exif::endian::Endian;
+
 pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
     let file = File::open(file_path)?;
     let mut reader = BufReader::new(&file);
@@ -117,8 +123,21 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
     }
 
     // Rating (XMP Rating tag - 0x4746)
-    // Note: kamadak-exif may not support XMP rating natively.
-    // We'll handle rating separately if needed.
+    // kamadak-exif supports reading custom tags using Tag::Unknown
+    if let Some(field) = exif_data.get_field(exif::Tag(exif::Context::Tiff, 0x4746), exif::In::PRIMARY) {
+        if let exif::Value::Short(ref v) = field.value {
+            if let Some(&val) = v.first() {
+                // Rating is 0-5
+                if val <= 5 {
+                    info.rating = Some(val as u8);
+                }
+            }
+        }
+    }
+
+    // for field in exif_data.fields() {
+    //     println!("{:?}: {:?}", field.tag.number(), field.display_value().to_string());
+    // }
 
     Ok(info)
 }
@@ -135,11 +154,62 @@ fn parse_gps_rational(value: &exif::Value) -> Option<f64> {
     None
 }
 
-pub fn write_rating(_file_path: &Path, _rating: u8) -> Result<(), crate::error::AppError> {
-    // Rating writing requires modifying EXIF data.
-    // kamadak-exif is read-only. For a full implementation, we would use
-    // little_exif or img_parts crate. For now, this is a placeholder.
-    // TODO: Implement EXIF rating write with a suitable crate
+pub fn write_rating(file_path: &Path, rating: u8) -> Result<(), crate::error::AppError> {
+    // Validate rating range (0-5)
+    if rating > 5 {
+        return Err(crate::error::AppError::General(
+            "Rating must be between 0 and 5".to_string(),
+        ));
+    }
+
+    // Check if file exists
+    if !file_path.exists() {
+        return Err(crate::error::AppError::General(
+            "File not found".to_string(),
+        ));
+    }
+
+    // Load existing metadata or create new
+    let mut metadata = Metadata::new_from_path(file_path).map_err(|e| {
+        crate::error::AppError::Exif(format!("Failed to read metadata: {}", e))
+    })?;
+
+    // Set the Rating tag (0x4746 in IFD0)
+    // Rating 0 means "not rated" or "rejected" depending on the application
+    // Using from_u16_with_data to create the tag since Rating is not a predefined variant
+    // Convert u16 rating to little-endian bytes
+    let rating_bytes = (rating as u16).to_le_bytes().to_vec();
+    let rating_tag = ExifTag::from_u16_with_data(
+        0x4746,
+        &ExifTagFormat::INT16U,
+        &rating_bytes,
+        &Endian::Little,
+        &ExifTagGroup::IFD0,
+    )
+    .map_err(|e| crate::error::AppError::Exif(format!("Failed to create rating tag: {}", e)))?;
+    metadata.set_tag(rating_tag);
+
+    // Also set the RatingPercent tag (0x4749) for compatibility
+    // Convert 0-5 rating to percentage (0, 20, 40, 60, 80, 100)
+    let percent = (rating as u16) * 20;
+    let percent_bytes = percent.to_le_bytes().to_vec();
+    let rating_percent_tag = ExifTag::from_u16_with_data(
+        0x4749,
+        &ExifTagFormat::INT16U,
+        &percent_bytes,
+        &Endian::Little,
+        &ExifTagGroup::IFD0,
+    )
+    .map_err(|e| {
+        crate::error::AppError::Exif(format!("Failed to create rating percent tag: {}", e))
+    })?;
+    metadata.set_tag(rating_percent_tag);
+
+    // Write metadata back to file
+    metadata.write_to_file(file_path).map_err(|e| {
+        crate::error::AppError::Exif(format!("Failed to write metadata: {}", e))
+    })?;
+
     Ok(())
 }
 

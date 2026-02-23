@@ -18,7 +18,10 @@ async function loadExif() {
     return
   }
   const filePath = props.image.jpgPath || props.image.rawPath
-  if (!filePath) { exif.value = null; return }
+  if (!filePath) {
+    exif.value = null
+    return
+  }
   loading.value = true
   try {
     exif.value = await invoke<ExifInfo>('read_exif', { filePath })
@@ -30,7 +33,24 @@ async function loadExif() {
   }
 }
 
+async function setRating(value: number) {
+  if (!props.image || !exif.value) return
+  const filePath = props.image.jpgPath || props.image.rawPath
+  if (!filePath) return
+  loading.value = true
+  try {
+    await invoke('write_rating', { filePath, rating: value })
+    exif.value.rating = value
+  } catch (e) {
+    console.error('Failed to write rating:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
 watch(() => props.image, loadExif, { immediate: true })
+
+defineExpose({ setRating })
 </script>
 
 <template>
@@ -81,6 +101,24 @@ watch(() => props.image, loadExif, { immediate: true })
       </div>
     </div>
     <div v-else class="exif-empty">无 EXIF 信息</div>
+
+    <!-- 评级控制 -->
+    <div class="rating-control">
+      <h3 class="section-title">评级</h3>
+      <div v-if="!image" class="rating-empty">未选择图像</div>
+      <div v-else class="stars">
+        <span
+          v-for="i in 5"
+          :key="i"
+          class="star"
+          :class="{ active: i <= (exif?.rating || 0) }"
+          @click="setRating(i === (exif?.rating || 0) ? 0 : i)"
+        >
+          &#9733;
+        </span>
+        <span class="rating-label">{{ (exif?.rating || 0) > 0 ? (exif?.rating || 0) + ' 星' : '未评级' }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -127,5 +165,42 @@ watch(() => props.image, loadExif, { immediate: true })
   color: var(--color-text-primary);
   text-align: right;
   word-break: break-all;
+}
+
+/* 评级控制样式 */
+.rating-control {
+  margin-top: var(--spacing-lg);
+}
+
+.rating-empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.stars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.star {
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--color-star-empty);
+  transition: color var(--transition-fast);
+}
+
+.star.active {
+  color: var(--color-star);
+}
+
+.star:hover {
+  color: var(--color-star);
+}
+
+.rating-label {
+  margin-left: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 </style>
