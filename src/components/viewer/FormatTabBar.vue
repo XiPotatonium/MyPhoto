@@ -14,20 +14,20 @@ const emit = defineEmits<{
 <template>
   <div class="format-tab-bar">
     <button
-      v-if="image.rawPath"
-      class="format-tab"
-      :class="{ active: currentFormat === 'raw' }"
-      @click="emit('update:format', 'raw')"
-    >
-      RAW
-    </button>
-    <button
       v-if="image.jpgPath"
       class="format-tab"
       :class="{ active: currentFormat === 'jpg' }"
       @click="emit('update:format', 'jpg')"
     >
       JPG
+    </button>
+    <button
+      v-if="image.rawPath"
+      class="format-tab"
+      :class="{ active: currentFormat === 'raw' }"
+      @click="emit('update:format', 'raw')"
+    >
+      RAW
     </button>
   </div>
 </template>

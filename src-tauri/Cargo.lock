@@ -2087,6 +2087,7 @@ name = "myphoto"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "byteorder",
  "chrono",
  "futures",
  "image",

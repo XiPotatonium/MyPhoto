@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::models::image::{ImageGroup, SortField, SortOrder};
 
 const IMAGE_EXTENSIONS_JPG: &[&str] = &["jpg", "jpeg", "png"];
-const IMAGE_EXTENSIONS_RAW: &[&str] = &["dng"];
+const IMAGE_EXTENSIONS_RAW: &[&str] = &["dng", "raf"];
 
 fn is_image_file(ext: &str) -> bool {
     let lower = ext.to_lowercase();
