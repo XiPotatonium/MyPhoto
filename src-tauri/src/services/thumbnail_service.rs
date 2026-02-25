@@ -3,6 +3,7 @@ use std::path::Path;
 
 use base64::Engine;
 use image::imageops::FilterType;
+use image::{ImageDecoder, ImageReader};
 const THUMBNAIL_SIZE: u32 = 260;
 
 pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
@@ -13,7 +14,16 @@ pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppE
         .to_lowercase();
 
     let img = match ext.as_str() {
-        "jpg" | "jpeg" | "png" => image::open(file_path)?,
+        "jpg" | "jpeg" | "png" => {
+            // Use ImageReader to handle EXIF orientation
+            // First get the decoder to read orientation, then decode and apply
+            let reader = ImageReader::open(file_path)?;
+            let mut decoder = reader.into_decoder()?;
+            let orientation = decoder.orientation()?;
+            let mut img = image::DynamicImage::from_decoder(decoder)?;
+            img.apply_orientation(orientation);
+            img
+        }
         "dng" => {
             // For DNG files, try to read the embedded JPEG preview via EXIF
             // If that fails, return a placeholder
