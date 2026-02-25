@@ -5,6 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
+import GPSDialog from '../common/GPSDialog.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { RecycleScroller } from 'vue-virtual-scroller'
 
@@ -31,6 +32,8 @@ const selectedIndices = ref<Set<number>>(new Set())
 const thumbnails = ref<Map<string, string>>(new Map())
 const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
+const gpsDialogVisible = ref(false)
+const gpsDialogRef = ref<InstanceType<typeof GPSDialog> | null>(null)
 
 // 计算每行显示的缩略图数量
 const itemsPerRow = computed(() => {
@@ -130,14 +133,79 @@ function onImageClick(index: number, e: MouseEvent) {
 }
 
 function onContextMenu(e: MouseEvent) {
-  showMenu(e, [
+  const menuItems = [
     { label: '刷新文件夹', action: loadImages },
     { label: '删除', action: requestDelete },
-  ])
+  ]
+  
+  // 只有在有选中图片时才显示添加GPS信息选项
+  if (selectedIndices.value.size > 0) {
+    menuItems.push({ label: '添加GPS信息', action: openGPSDialog })
+  }
+  
+  showMenu(e, menuItems)
 }
 
 function requestDelete() {
   // Will be wired up in Phase 9
+}
+
+function openGPSDialog() {
+  if (selectedIndices.value.size === 0) return
+  gpsDialogVisible.value = true
+}
+
+function closeGPSDialog() {
+  gpsDialogVisible.value = false
+  if (gpsDialogRef.value) {
+    gpsDialogRef.value.reset()
+  }
+}
+
+async function handleGPSConfirm(latitude: number, longitude: number) {
+  if (!gpsDialogRef.value) return
+  
+  // 设置加载状态
+  gpsDialogRef.value.loading = true
+  
+  try {
+    // 获取选中图片的路径，同时收集JPG和RAW路径
+    const selectedImages = Array.from(selectedIndices.value).map(index => images.value[index])
+    const filePaths: string[] = []
+    
+    selectedImages.forEach(img => {
+      if (img.jpgPath) {
+        filePaths.push(img.jpgPath)
+      }
+      if (img.rawPath) {
+        filePaths.push(img.rawPath)
+      }
+    })
+    
+    if (filePaths.length === 0) {
+      console.error('No valid file paths found')
+      return
+    }
+    
+    // 调用批量写入GPS信息命令
+    await invoke('batch_write_gps', {
+      paths: filePaths,
+      latitude,
+      longitude,
+    })
+    
+    console.log(`Successfully added GPS info to ${filePaths.length} file(s)`)
+    
+    // 关闭对话框
+    closeGPSDialog()
+  } catch (e) {
+    console.error('Failed to write GPS info:', e)
+    alert('保存GPS信息失败: ' + e)
+  } finally {
+    if (gpsDialogRef.value) {
+      gpsDialogRef.value.loading = false
+    }
+  }
 }
 
 function navigateImage(direction: number) {
@@ -209,6 +277,12 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images })
       :y="menuState.y"
       :items="menuState.items"
       @close="hideMenu"
+    />
+    <GPSDialog
+      ref="gpsDialogRef"
+      :visible="gpsDialogVisible"
+      @confirm="handleGPSConfirm"
+      @cancel="closeGPSDialog"
     />
   </div>
 </template>
