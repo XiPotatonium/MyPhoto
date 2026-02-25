@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
+import { RecycleScroller } from 'vue-virtual-scroller'
+
+interface ThumbnailResult {
+  base_name: string
+  thumbnail: string | null
+  error: string | null
+}
 
 const props = defineProps<{
   selectedFolder: string | null
@@ -22,6 +30,35 @@ const selectedIndex = ref(-1)
 const selectedIndices = ref<Set<number>>(new Set())
 const thumbnails = ref<Map<string, string>>(new Map())
 const { menuState, showMenu, hideMenu } = useContextMenu()
+const containerWidth = ref(0)
+
+// 计算每行显示的缩略图数量
+const itemsPerRow = computed(() => {
+  const thumbnailSize = 150 // 默认缩略图大小
+  const gap = 8 // 默认间距
+  const padding = 16 // 默认内边距
+  const availableWidth = containerWidth.value - padding * 2
+  if (availableWidth <= 0) return 4 // 默认值
+  return Math.max(1, Math.floor((availableWidth + gap) / (thumbnailSize + gap)))
+})
+
+// 将图片分组成行
+const imageRows = computed(() => {
+  const rows: Array<{ index: number; images: Array<{ img: ImageGroup; globalIndex: number }> }> = []
+  for (let i = 0; i < images.value.length; i += itemsPerRow.value) {
+    rows.push({
+      index: i,
+      images: images.value.slice(i, i + itemsPerRow.value).map((img, offset) => ({
+        img,
+        globalIndex: i + offset
+      }))
+    })
+  }
+  return rows
+})
+
+// 计算行高度
+const rowHeight = 150 + 8 // 缩略图高度 + 间距
 
 async function loadImages() {
   if (!props.selectedFolder) {
@@ -38,7 +75,7 @@ async function loadImages() {
     selectedIndex.value = -1
     selectedIndices.value.clear()
     thumbnails.value.clear()
-    loadThumbnailsBatch()
+    loadThumbnailsBatch() // 不使用 await，让它在后台运行
   } catch (e) {
     console.error('Failed to list images:', e)
     images.value = []
@@ -48,15 +85,31 @@ async function loadImages() {
 }
 
 async function loadThumbnailsBatch() {
-  for (const img of images.value) {
-    const filePath = img.jpgPath || img.rawPath
-    if (!filePath) continue
-    try {
-      const thumb = await invoke<string>('generate_thumbnail', { filePath })
-      thumbnails.value.set(img.baseName, thumb)
-    } catch (e) {
-      console.error('Failed to generate thumbnail:', filePath, e)
+  if (images.value.length === 0) return
+  
+  // 设置事件监听器
+  const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
+    const { base_name, thumbnail, error } = event.payload
+    if (thumbnail) {
+      thumbnails.value.set(base_name, thumbnail)
+    } else if (error) {
+      console.error(`Failed to generate thumbnail for ${base_name}:`, error)
     }
+  })
+  
+  // 收集所有文件路径
+  const filePaths = images.value
+    .map(img => img.jpgPath || img.rawPath)
+    .filter(path => path !== null) as string[]
+  
+  try {
+    // 调用批量生成命令
+    await invoke('generate_thumbnails_batch', { filePaths })
+  } catch (e) {
+    console.error('Failed to generate thumbnails batch:', e)
+  } finally {
+    // 清理事件监听器
+    unlisten()
   }
 }
 
@@ -101,24 +154,55 @@ function navigateImage(direction: number) {
 watch(() => props.selectedFolder, loadImages)
 watch(() => [props.sortField, props.sortOrder], loadImages)
 
+// 监听容器宽度变化
+const browserEl = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  if (browserEl.value) {
+    containerWidth.value = browserEl.value.offsetWidth
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        containerWidth.value = entry.contentRect.width
+      }
+    })
+    resizeObserver.observe(browserEl.value)
+  }
+})
+
+onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+})
+
 defineExpose({ navigateImage, requestDelete, selectedIndices, images })
 </script>
 
 <template>
-  <div class="image-browser" @contextmenu.prevent="onContextMenu">
+  <div ref="browserEl" class="image-browser" @contextmenu.prevent="onContextMenu">
     <div v-if="!selectedFolder" class="browser-empty">选择一个文件夹以浏览图像</div>
     <div v-else-if="loading" class="browser-loading">加载中...</div>
     <div v-else-if="images.length === 0" class="browser-empty">此文件夹中没有图像文件</div>
-    <div v-else class="thumbnail-grid">
-      <ImageThumbnail
-        v-for="(img, i) in images"
-        :key="img.baseName"
-        :image="img"
-        :thumbnail="thumbnails.get(img.baseName) || null"
-        :selected="selectedIndices.has(i)"
-        @click="(e: MouseEvent) => onImageClick(i, e)"
-      />
-    </div>
+    <RecycleScroller
+      v-else
+      class="scroller"
+      :items="imageRows"
+      :item-size="rowHeight"
+      key-field="index"
+      v-slot="{ item }"
+    >
+      <div class="thumbnail-row">
+        <ImageThumbnail
+          v-for="imgData in item.images"
+          :key="imgData.img.baseName"
+          :image="imgData.img"
+          :thumbnail="thumbnails.get(imgData.img.baseName) || null"
+          :selected="selectedIndices.has(imgData.globalIndex)"
+          @click="(e: MouseEvent) => onImageClick(imgData.globalIndex, e)"
+        />
+      </div>
+    </RecycleScroller>
     <ContextMenu
       :visible="menuState.visible"
       :x="menuState.x"
@@ -133,9 +217,8 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images })
 .image-browser {
   width: 100%;
   height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
 }
 
 .browser-empty,
@@ -148,6 +231,19 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images })
   font-size: var(--font-size-sm);
 }
 
+.scroller {
+  flex: 1;
+  height: 100%;
+}
+
+.thumbnail-row {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: 0 var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* 保留原 grid 样式作为 fallback */
 .thumbnail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--thumbnail-size), 1fr));

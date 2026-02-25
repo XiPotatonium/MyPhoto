@@ -13,6 +13,7 @@ pub fn run() {
             commands::filesystem::list_images,
             commands::filesystem::select_root_directory,
             commands::thumbnail::generate_thumbnail,
+            commands::thumbnail::generate_thumbnails_batch,
             commands::thumbnail::read_image_file,
             commands::exif_cmd::read_exif,
             commands::exif_cmd::write_rating,

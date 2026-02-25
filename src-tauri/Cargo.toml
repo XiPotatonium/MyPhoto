@@ -39,6 +39,7 @@ trash = "5"
 
 # Async
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 
 # Encoding
 base64 = "0.22"
