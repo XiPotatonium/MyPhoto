@@ -21,6 +21,7 @@ const emit = defineEmits<{
         :value="sortField"
         @change="emit('update:sortField', ($event.target as HTMLSelectElement).value as SortField)"
       >
+        <option value="name">按文件名</option>
         <option value="date">按时间</option>
         <option value="rating">按星级</option>
       </select>

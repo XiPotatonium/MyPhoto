@@ -27,6 +27,11 @@ function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortO
   const sorted = [...images]
   
   switch (sortField) {
+    case 'name':
+      sorted.sort((a, b) => {
+        return a.baseName.toLowerCase().localeCompare(b.baseName.toLowerCase())
+      })
+      break
     case 'date':
       sorted.sort((a, b) => {
         const timeA = getSortTime(a)

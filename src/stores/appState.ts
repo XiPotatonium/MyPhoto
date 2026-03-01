@@ -26,8 +26,8 @@ const state = reactive<AppState>({
   selectedImages: [],
   currentImage: null,
   currentFormat: 'jpg',
-  sortField: 'date',
-  sortOrder: 'desc',
+  sortField: 'name',
+  sortOrder: 'asc',
   confirmDialog: {
     visible: false,
     title: '',

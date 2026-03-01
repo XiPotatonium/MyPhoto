@@ -10,7 +10,7 @@ export interface ImageGroup {
   exifInfo: ExifInfo | null
 }
 
-export type SortField = 'date' | 'rating'
+export type SortField = 'name' | 'date' | 'rating'
 export type SortOrder = 'asc' | 'desc'
 
 export interface SortOptions {
