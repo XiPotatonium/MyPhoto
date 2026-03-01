@@ -86,9 +86,7 @@ watch(() => props.rootPath, (newPath) => {
     <div v-else-if="loading" class="tree-loading">加载中...</div>
     <div v-else-if="tree" class="tree-content">
       <DirectoryTreeNode
-        v-for="child in tree.children"
-        :key="child.path"
-        :node="child"
+        :node="tree"
         :level="0"
         :selected-path="selectedPath"
         :expanded-paths="expandedPaths"
