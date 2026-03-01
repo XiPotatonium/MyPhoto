@@ -7,6 +7,7 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?logo=tauri)
 ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vue.js)
+![Tailwind](https://img.shields.io/badge/Tailwind-4.0-06B6D4?logo=tailwindcss)
 
 ## ✨ 功能特性
 
@@ -29,6 +30,11 @@
 - **通用格式**：JPEG、PNG
 - **RAW 格式**：支持富士 RAF 格式（内置解码器）。由于我没有其他品牌的相机，暂时没有支持其他raw格式的计划。
 - **智能识别**：自动检测并关联同名不同格式的文件
+
+### 🌓 界面主题
+- **深浅色模式**：支持浅色/深色主题切换，自动适配系统偏好
+- **现代化 UI**：基于 shadcn-vue 组件库，简洁优雅的设计语言
+- **流畅动画**：主题切换、交互反馈均有平滑过渡效果
 
 ### ⚡ 性能优化
 - **虚拟滚动**：大量图片流畅浏览不卡顿
@@ -80,13 +86,22 @@ pnpm tauri build
 
 | 层级 | 技术 |
 |------|------|
-| 前端框架 | Vue 3 + TypeScript |
+| 前端框架 | Vue 3.5 + TypeScript 5.6 |
 | 桌面框架 | Tauri 2.0 |
 | 构建工具 | Vite 6 |
-| UI 组件 | 自定义组件 |
+| UI 组件 | shadcn-vue + Tailwind CSS 4 |
+| 图标库 | Lucide Vue |
+| 状态管理 | Vue Composition API |
 | 图像处理 | Rust image crate |
 | EXIF 处理 | kamadak-exif / little_exif |
-| RAW 解码 | 自研 RAF 解码器 |
+
+### 前端技术亮点
+
+- **shadcn-vue**: 采用流行的 Vue 组件库，提供一致的设计语言和优秀的可访问性支持
+- **Tailwind CSS 4**: 使用最新的原子化 CSS 框架，支持 CSS 变量主题系统
+- **深浅色主题**: 基于 CSS 变量实现的主题系统，支持手动切换和自动跟随系统偏好
+- **虚拟滚动**: 使用 vue-virtual-scroller 实现大量图片的流畅浏览
+- **响应式布局**: 三栏式自适应布局，支持拖拽调整面板宽度
 
 ## ⌨️ 快捷键
 
