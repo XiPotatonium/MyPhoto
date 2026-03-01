@@ -91,12 +91,24 @@ const images = computed(() => {
 
 // 计算每行显示的缩略图数量
 const itemsPerRow = computed(() => {
-  const thumbnailSize = 150 // 默认缩略图大小
-  const gap = 8 // 默认间距
-  const padding = 16 // 默认内边距
+  const thumbnailSize = 130 // 与 CSS 变量 --thumbnail-size 保持一致
+  const thumbnailPadding = 8 // 与 CSS 中 .image-thumbnail 的 padding 一致 (var(--spacing-xs) * 2 = 4px * 2)
+  const itemTotalWidth = thumbnailSize + thumbnailPadding // 单个缩略图项的总宽度
+  const gap = 8 // 与 CSS 中 .thumbnail-row 的 gap 一致 (var(--spacing-sm))
+  const padding = 8 // 与 CSS 中 .thumbnail-row 的 padding 一致 (var(--spacing-sm))
   const availableWidth = containerWidth.value - padding * 2
-  if (availableWidth <= 0) return 4 // 默认值
-  return Math.max(1, Math.floor((availableWidth + gap) / (thumbnailSize + gap)))
+  
+  // 调试输出
+  console.log('Container width:', containerWidth.value, 'Available width:', availableWidth, 'Item width:', itemTotalWidth)
+  
+  if (availableWidth <= 0 || containerWidth.value === 0) {
+    console.log('Using default itemsPerRow: 4')
+    return 4 // 默认值
+  }
+  
+  const result = Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
+  console.log('Items per row:', result)
+  return result
 })
 
 // 将图片分组成行
@@ -114,8 +126,8 @@ const imageRows = computed(() => {
   return rows
 })
 
-// 计算行高度
-const rowHeight = 150 + 8 // 缩略图高度 + 间距
+// 计算行高度 (thumbnail-size 130px + label 约 20px + padding)
+const rowHeight = 130 + 24 + 8 // 缩略图高度 + label高度 + 间距
 
 async function loadImages() {
   if (!props.selectedFolder) {
@@ -366,6 +378,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       :items="imageRows"
       :item-size="rowHeight"
       key-field="index"
+      direction="vertical"
       v-slot="{ item }"
     >
       <div class="thumbnail-row">
@@ -423,6 +436,8 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
+  width: 100%;
+  justify-content: flex-start;
 }
 
 /* 保留原 grid 样式作为 fallback */
