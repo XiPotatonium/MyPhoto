@@ -61,12 +61,7 @@ function onContextMenu(e: MouseEvent) {
   showMenu(e, [
     { label: '设置根目录', action: selectRootDirectory },
     { label: '刷新目录树', action: () => { if (props.rootPath) loadTree(props.rootPath) } },
-    { label: '全部折叠', action: collapseAll },
   ])
-}
-
-function collapseAll() {
-  expandedPaths.value.clear()
 }
 
 const expandedPaths = ref<Set<string>>(new Set())
@@ -95,21 +90,6 @@ watch(() => props.rootPath, (newPath) => {
       </Button>
     </div>
     <template v-else>
-      <div class="tree-header">
-        <div class="tree-header-title" :title="rootPath">
-          <FolderOpen class="h-4 w-4 text-primary" />
-          <span class="truncate">{{ getRootFolderName() }}</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-7 w-7 shrink-0"
-          :disabled="loading"
-          @click="() => rootPath && loadTree(rootPath)"
-        >
-          <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
-        </Button>
-      </div>
       <div v-if="loading" class="tree-loading">
         <RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
         <span>加载中...</span>
@@ -151,27 +131,6 @@ watch(() => props.rootPath, (newPath) => {
   justify-content: center;
   height: 100%;
   padding: var(--spacing-lg);
-}
-
-.tree-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
-  flex-shrink: 0;
-}
-
-.tree-header-title {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  overflow: hidden;
-  flex: 1;
 }
 
 .tree-content {

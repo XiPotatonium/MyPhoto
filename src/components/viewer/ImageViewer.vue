@@ -47,7 +47,7 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
 </script>
 
 <template>
-  <div class="image-viewer">
+  <div class="image-viewer" @contextmenu.prevent>
     <div v-if="!image" class="viewer-empty-state">
       <ImageOff class="h-16 w-16 text-muted-foreground/30" />
       <p>选择图像以预览</p>

@@ -73,6 +73,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'image-selected': [image: ImageGroup]
+  'delete-requested': []
 }>()
 
 const rawImages = ref<ImageGroup[]>([])
@@ -213,7 +214,8 @@ function onContextMenu(e: MouseEvent) {
 }
 
 function requestDelete() {
-  // Will be wired up in Phase 9
+  // 触发删除请求事件，由父组件统一处理删除逻辑
+  emit('delete-requested')
 }
 
 function openGPSDialog() {
@@ -430,7 +432,6 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: hsl(var(--background));
 }
 
 .browser-empty-state {

@@ -134,6 +134,7 @@ onUnmounted(() => {
               :sort-field="appState.state.sortField"
               :sort-order="appState.state.sortOrder"
               @image-selected="appState.setCurrentImage"
+              @delete-requested="handleDelete"
             />
           </template>
         </LeftPanel>

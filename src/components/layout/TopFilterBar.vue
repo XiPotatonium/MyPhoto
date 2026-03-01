@@ -52,7 +52,7 @@ const sortOptions = [
         </SelectContent>
       </Select>
       <Button
-        variant="outline"
+        variant="secondary"
         size="icon"
         class="h-8 w-8"
         :title="sortOrder === 'asc' ? '升序' : '降序'"

@@ -2,7 +2,7 @@
 </script>
 
 <template>
-  <div class="right-panel">
+  <div class="right-panel" @contextmenu.prevent>
     <slot />
   </div>
 </template>

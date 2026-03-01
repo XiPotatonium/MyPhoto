@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { FileImage, FileType2 } from 'lucide-vue-next'
 import type { ImageGroup } from '../../types/image'
 import { Button } from '../ui/button'
+import { ButtonGroup } from '../ui/button-group'
 import { cn } from '../../lib/utils'
 
 defineProps<{
@@ -16,18 +16,17 @@ const emit = defineEmits<{
 
 <template>
   <div class="format-tab-bar">
-    <div class="format-tabs">
+    <ButtonGroup>
       <Button
         v-if="image.jpgPath"
         variant="ghost"
         size="sm"
         :class="cn(
-          'format-tab gap-1.5',
+          'format-tab',
           currentFormat === 'jpg' && 'active'
         )"
         @click="emit('update:format', 'jpg')"
       >
-        <FileImage class="h-4 w-4" />
         JPG
       </Button>
       <Button
@@ -35,15 +34,14 @@ const emit = defineEmits<{
         variant="ghost"
         size="sm"
         :class="cn(
-          'format-tab gap-1.5',
+          'format-tab',
           currentFormat === 'raw' && 'active'
         )"
         @click="emit('update:format', 'raw')"
       >
-        <FileType2 class="h-4 w-4" />
         RAW
       </Button>
-    </div>
+    </ButtonGroup>
   </div>
 </template>
 
@@ -55,14 +53,6 @@ const emit = defineEmits<{
   border-bottom: 1px solid hsl(var(--border));
   flex-shrink: 0;
   background: hsl(var(--background));
-}
-
-.format-tabs {
-  display: flex;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-xs);
-  background: hsl(var(--muted));
-  border-radius: var(--radius);
 }
 
 .format-tab {
