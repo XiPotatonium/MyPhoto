@@ -1,9 +1,13 @@
+import type { ExifInfo } from './exif'
+
 export interface ImageGroup {
   baseName: string
   jpgPath: string | null
   rawPath: string | null
   fileCount: number
   modifiedTime: string | null
+  fileCreatedTime: string | null
+  exifInfo: ExifInfo | null
 }
 
 export type SortField = 'date' | 'rating'

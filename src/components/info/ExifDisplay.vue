@@ -9,6 +9,10 @@ const props = defineProps<{
   image: ImageGroup | null
 }>()
 
+const emit = defineEmits<{
+  'rating-updated': [image: ImageGroup, rating: number]
+}>()
+
 const exif = ref<ExifInfo | null>(null)
 const loading = ref(false)
 
@@ -41,6 +45,8 @@ async function setRating(value: number) {
   try {
     await invoke('write_rating', { filePath, rating: value })
     exif.value.rating = value
+    // 通知父组件评分已更新，同步更新前端图片信息
+    emit('rating-updated', props.image, value)
   } catch (e) {
     console.error('Failed to write rating:', e)
   } finally {

@@ -2,6 +2,7 @@
 import { provide, ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppState } from './stores/appState'
+import type { ImageGroup } from './types/image'
 import TopFilterBar from './components/layout/TopFilterBar.vue'
 import LeftPanel from './components/layout/LeftPanel.vue'
 import CenterPanel from './components/layout/CenterPanel.vue'
@@ -48,6 +49,11 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+function handleRatingUpdated(_image: ImageGroup, rating: number) {
+  // 同步更新 ImageBrowser 中的图片信息
+  imageBrowserRef.value?.updateImageRating(rating)
+}
+
 function handleDelete() {
   const image = appState.state.currentImage
   if (!image) return
@@ -80,8 +86,8 @@ function handleDelete() {
       if (paths.length > 0) {
         try {
           await invoke('move_to_trash', { paths })
-          // Refresh the browser after deletion
-          imageBrowserRef.value?.navigateImage(0)
+          // 前端直接移除图片，而不是重新调用 list_images
+          imageBrowserRef.value?.removeImages(paths)
         } catch (err) {
           console.error('Failed to delete:', err)
         }
@@ -144,7 +150,11 @@ onUnmounted(() => {
       </div>
       <div class="right-panel-container">
         <RightPanel>
-          <ExifDisplay :image="appState.state.currentImage" />
+          <ExifDisplay 
+            ref="exifDisplayRef"
+            :image="appState.state.currentImage" 
+            @rating-updated="handleRatingUpdated"
+          />
         </RightPanel>
       </div>
     </div>

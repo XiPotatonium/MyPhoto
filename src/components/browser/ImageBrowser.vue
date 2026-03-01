@@ -9,6 +9,50 @@ import GPSDialog from '../common/GPSDialog.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { RecycleScroller } from 'vue-virtual-scroller'
 
+/// 获取图片的排序时间（优先使用 EXIF 时间，其次文件创建时间）
+function getSortTime(image: ImageGroup): string | null {
+  if (image.exifInfo?.datetime) {
+    return image.exifInfo.datetime
+  }
+  return image.fileCreatedTime
+}
+
+/// 获取图片评分
+function getRating(image: ImageGroup): number {
+  return image.exifInfo?.rating ?? 0
+}
+
+/// 前端排序函数
+function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortOrder): ImageGroup[] {
+  const sorted = [...images]
+  
+  switch (sortField) {
+    case 'date':
+      sorted.sort((a, b) => {
+        const timeA = getSortTime(a)
+        const timeB = getSortTime(b)
+        if (!timeA && !timeB) return 0
+        if (!timeA) return 1
+        if (!timeB) return -1
+        return timeA.localeCompare(timeB)
+      })
+      break
+    case 'rating':
+      sorted.sort((a, b) => {
+        const ratingA = getRating(a)
+        const ratingB = getRating(b)
+        return ratingA - ratingB
+      })
+      break
+  }
+  
+  if (sortOrder === 'desc') {
+    sorted.reverse()
+  }
+  
+  return sorted
+}
+
 interface ThumbnailResult {
   base_name: string
   thumbnail: string | null
@@ -25,7 +69,7 @@ const emit = defineEmits<{
   'image-selected': [image: ImageGroup]
 }>()
 
-const images = ref<ImageGroup[]>([])
+const rawImages = ref<ImageGroup[]>([])
 const loading = ref(false)
 const selectedIndex = ref(-1)
 const selectedIndices = ref<Set<number>>(new Set())
@@ -34,6 +78,11 @@ const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
 const gpsDialogVisible = ref(false)
 const gpsDialogRef = ref<InstanceType<typeof GPSDialog> | null>(null)
+
+// 排序后的图片列表
+const images = computed(() => {
+  return sortImages(rawImages.value, props.sortField, props.sortOrder)
+})
 
 // 计算每行显示的缩略图数量
 const itemsPerRow = computed(() => {
@@ -65,15 +114,14 @@ const rowHeight = 150 + 8 // 缩略图高度 + 间距
 
 async function loadImages() {
   if (!props.selectedFolder) {
-    images.value = []
+    rawImages.value = []
     return
   }
   loading.value = true
   try {
-    images.value = await invoke<ImageGroup[]>('list_images', {
+    // 后端不再排序，只返回原始数据
+    rawImages.value = await invoke<ImageGroup[]>('list_images', {
       dirPath: props.selectedFolder,
-      sortField: props.sortField,
-      sortOrder: props.sortOrder,
     })
     selectedIndex.value = -1
     selectedIndices.value.clear()
@@ -81,7 +129,7 @@ async function loadImages() {
     loadThumbnailsBatch() // 不使用 await，让它在后台运行
   } catch (e) {
     console.error('Failed to list images:', e)
-    images.value = []
+    rawImages.value = []
   } finally {
     loading.value = false
   }
@@ -219,8 +267,9 @@ function navigateImage(direction: number) {
   emit('image-selected', images.value[newIndex])
 }
 
+// 只在文件夹改变时重新加载图片
 watch(() => props.selectedFolder, loadImages)
-watch(() => [props.sortField, props.sortOrder], loadImages)
+// 排序方式改变时不需要重新加载图片，computed 属性 images 会自动重新排序
 
 // 监听容器宽度变化
 const browserEl = ref<HTMLElement | null>(null)
@@ -244,7 +293,61 @@ onUnmounted(() => {
   }
 })
 
-defineExpose({ navigateImage, requestDelete, selectedIndices, images })
+// 更新当前选中图片的评分
+function updateImageRating(rating: number) {
+  if (selectedIndex.value < 0 || selectedIndex.value >= images.value.length) return
+  
+  const image = images.value[selectedIndex.value]
+  if (!image) return
+  
+  // 找到原始图片数据并更新
+  const rawIndex = rawImages.value.findIndex(img => img.baseName === image.baseName)
+  if (rawIndex >= 0 && rawImages.value[rawIndex].exifInfo) {
+    rawImages.value[rawIndex].exifInfo!.rating = rating
+  }
+}
+
+// 前端直接移除图片
+function removeImages(paths: string[]) {
+  const pathSet = new Set(paths)
+  
+  // 过滤掉被删除的图片
+  const newRawImages = rawImages.value.filter(img => {
+    const jpgDeleted = img.jpgPath && pathSet.has(img.jpgPath)
+    const rawDeleted = img.rawPath && pathSet.has(img.rawPath)
+    
+    // 如果只删除了其中一个格式，更新图片组而不是移除
+    if (jpgDeleted && !rawDeleted && img.rawPath) {
+      img.jpgPath = null
+      img.fileCount -= 1
+      return true
+    }
+    if (rawDeleted && !jpgDeleted && img.jpgPath) {
+      img.rawPath = null
+      img.fileCount -= 1
+      return true
+    }
+    
+    // 如果两个都被删除，或者只有一个格式且被删除，则移除
+    return !(jpgDeleted || rawDeleted)
+  })
+  
+  rawImages.value = newRawImages
+  
+  // 清除选中状态
+  selectedIndices.value.clear()
+  selectedIndex.value = -1
+  
+  // 清除缩略图缓存
+  paths.forEach(path => {
+    const baseName = path.split('/').pop()?.split('.').shift()
+    if (baseName) {
+      thumbnails.value.delete(baseName)
+    }
+  })
+}
+
+defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImageRating, removeImages })
 </script>
 
 <template>

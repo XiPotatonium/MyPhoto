@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::error::AppError;
 use crate::models::directory::DirectoryNode;
-use crate::models::image::{ImageGroup, SortField, SortOrder};
+use crate::models::image::ImageGroup;
 use crate::services::{directory_scanner, image_processor};
 
 #[tauri::command]
@@ -18,11 +18,7 @@ pub fn scan_directory_tree(root_path: String) -> Result<DirectoryNode, AppError>
 }
 
 #[tauri::command]
-pub fn list_images(
-    dir_path: String,
-    sort_field: SortField,
-    sort_order: SortOrder,
-) -> Result<Vec<ImageGroup>, AppError> {
+pub fn list_images(dir_path: String) -> Result<Vec<ImageGroup>, AppError> {
     let path = Path::new(&dir_path);
     if !path.is_dir() {
         return Err(AppError::General(format!(
@@ -30,7 +26,7 @@ pub fn list_images(
             dir_path
         )));
     }
-    image_processor::list_images(path, &sort_field, &sort_order).map_err(AppError::from)
+    image_processor::list_images(path).map_err(AppError::from)
 }
 
 #[tauri::command]
