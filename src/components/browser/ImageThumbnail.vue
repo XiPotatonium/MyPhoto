@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ImageOff } from 'lucide-vue-next'
 import type { ImageGroup } from '../../types/image'
+import { cn } from '../../lib/utils'
 
 defineProps<{
   image: ImageGroup
@@ -14,8 +16,10 @@ const emit = defineEmits<{
 
 <template>
   <div
-    class="image-thumbnail"
-    :class="{ selected }"
+    :class="cn(
+      'image-thumbnail group',
+      selected && 'selected'
+    )"
     @click="(e) => emit('click', e)"
   >
     <div class="thumb-container">
@@ -25,8 +29,12 @@ const emit = defineEmits<{
         class="thumb-img"
         draggable="false"
       />
-      <div v-else class="thumb-placeholder" />
-      <div v-if="image.fileCount > 1" class="file-badge">{{ image.fileCount }}</div>
+      <div v-else class="thumb-placeholder">
+        <ImageOff class="h-8 w-8 text-muted-foreground/50" />
+      </div>
+      <div v-if="image.fileCount > 1" class="file-badge">
+        {{ image.fileCount }}
+      </div>
     </div>
     <div class="thumb-label" :title="image.baseName">
       {{ image.baseName }}
@@ -41,25 +49,27 @@ const emit = defineEmits<{
   align-items: center;
   cursor: pointer;
   padding: var(--spacing-xs);
-  border-radius: var(--radius-md);
-  transition: background var(--transition-fast);
+  border-radius: calc(var(--radius) - 2px);
+  transition: all var(--transition-fast);
+  border: 2px solid transparent;
 }
 
 .image-thumbnail:hover {
-  background: var(--color-bg-hover);
+  background: hsl(var(--accent));
 }
 
 .image-thumbnail.selected {
-  background: var(--color-accent-light);
+  background: hsl(var(--accent));
+  border-color: hsl(var(--primary));
 }
 
 .thumb-container {
   position: relative;
   width: var(--thumbnail-size);
   height: var(--thumbnail-size);
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius) - 4px);
   overflow: hidden;
-  background: var(--color-bg-tertiary);
+  background: hsl(var(--muted));
 }
 
 .thumb-img {
@@ -71,7 +81,10 @@ const emit = defineEmits<{
 .thumb-placeholder {
   width: 100%;
   height: 100%;
-  background: var(--color-bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--muted));
 }
 
 .file-badge {
@@ -81,24 +94,31 @@ const emit = defineEmits<{
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  background: var(--color-badge-bg);
-  color: var(--color-badge-text);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
   font-size: 10px;
   font-weight: 600;
   border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .thumb-label {
   margin-top: var(--spacing-xs);
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  color: hsl(var(--muted-foreground));
   text-align: center;
   width: var(--thumbnail-size);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+}
+
+.image-thumbnail.selected .thumb-label {
+  color: hsl(var(--foreground));
+  font-weight: 600;
 }
 </style>

@@ -1,5 +1,18 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { MapPin, Loader2, Info } from 'lucide-vue-next'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
+import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
+import { cn } from '../../lib/utils'
 
 defineProps<{
   visible: boolean
@@ -58,226 +71,79 @@ defineExpose({ loading, reset })
 </script>
 
 <template>
-  <Teleport to="body">
-    <div v-if="visible" class="dialog-overlay" @click.self="handleCancel">
-      <div class="dialog-box">
-        <div class="dialog-title">添加GPS信息</div>
-        
-        <div class="dialog-content">
-          <div class="form-group">
-            <label for="latitude">纬度 (Latitude)</label>
-            <input
-              id="latitude"
-              v-model="latitude"
-              type="text"
-              placeholder="例如: 39.9042"
-              :disabled="loading"
-              :class="{ invalid: latitude !== '' && !isValidLatitude }"
-            />
-            <div v-if="latitude !== '' && !isValidLatitude" class="error-msg">
-              纬度必须在 -90 到 90 之间
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label for="longitude">经度 (Longitude)</label>
-            <input
-              id="longitude"
-              v-model="longitude"
-              type="text"
-              placeholder="例如: 116.4074"
-              :disabled="loading"
-              :class="{ invalid: longitude !== '' && !isValidLongitude }"
-            />
-            <div v-if="longitude !== '' && !isValidLongitude" class="error-msg">
-              经度必须在 -180 到 180 之间
-            </div>
-          </div>
-
-          <div class="hint">
-            <span class="hint-icon">ℹ️</span>
-            <span>
-              可以在
-              <a href="https://jingweidu.bmcx.com" target="_blank" rel="noopener noreferrer">
-                https://jingweidu.bmcx.com
-              </a>
-              上查找具体位置的经纬度坐标
-            </span>
-          </div>
+  <Dialog :open="visible" @update:open="(open) => !open && handleCancel()">
+    <DialogContent class="sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle class="flex items-center gap-2">
+          <MapPin class="h-5 w-5" />
+          添加GPS信息
+        </DialogTitle>
+        <DialogDescription>
+          为选中的图像添加地理位置信息
+        </DialogDescription>
+      </DialogHeader>
+      
+      <div class="grid gap-4 py-4">
+        <div class="grid gap-2">
+          <Label for="latitude">纬度 (Latitude)</Label>
+          <Input
+            id="latitude"
+            v-model="latitude"
+            type="text"
+            placeholder="例如: 39.9042"
+            :disabled="loading"
+            :class="cn(
+              latitude !== '' && !isValidLatitude && 'border-destructive focus-visible:ring-destructive'
+            )"
+          />
+          <p v-if="latitude !== '' && !isValidLatitude" class="text-sm text-destructive">
+            纬度必须在 -90 到 90 之间
+          </p>
         </div>
 
-        <div class="dialog-actions">
-          <button class="dialog-btn cancel" @click="handleCancel" :disabled="loading">
-            取消
-          </button>
-          <button
-            class="dialog-btn confirm"
-            @click="handleConfirm"
-            :disabled="!canConfirm"
-          >
-            <span v-if="loading" class="loading-spinner"></span>
-            <span v-else>确认</span>
-          </button>
+        <div class="grid gap-2">
+          <Label for="longitude">经度 (Longitude)</Label>
+          <Input
+            id="longitude"
+            v-model="longitude"
+            type="text"
+            placeholder="例如: 116.4074"
+            :disabled="loading"
+            :class="cn(
+              longitude !== '' && !isValidLongitude && 'border-destructive focus-visible:ring-destructive'
+            )"
+          />
+          <p v-if="longitude !== '' && !isValidLongitude" class="text-sm text-destructive">
+            经度必须在 -180 到 180 之间
+          </p>
+        </div>
+
+        <div class="flex items-start gap-2 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+          <Info class="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            可以在
+            <a 
+              href="https://jingweidu.bmcx.com" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="text-primary hover:underline"
+            >
+              https://jingweidu.bmcx.com
+            </a>
+            上查找具体位置的经纬度坐标
+          </span>
         </div>
       </div>
-    </div>
-  </Teleport>
+
+      <DialogFooter>
+        <Button variant="outline" :disabled="loading" @click="handleCancel">
+          取消
+        </Button>
+        <Button :disabled="!canConfirm" @click="handleConfirm">
+          <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin" />
+          <span v-else>确认</span>
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
-
-<style scoped>
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--color-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
-}
-
-.dialog-box {
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-xl);
-  min-width: 420px;
-  max-width: 520px;
-  box-shadow: var(--shadow-lg);
-}
-
-.dialog-title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  margin-bottom: var(--spacing-lg);
-}
-
-.dialog-content {
-  margin-bottom: var(--spacing-xl);
-}
-
-.form-group {
-  margin-bottom: var(--spacing-md);
-}
-
-.form-group label {
-  display: block;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  margin-bottom: var(--spacing-xs);
-  color: var(--color-text-primary);
-}
-
-.form-group input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-base);
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  transition: border-color var(--transition-fast);
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.form-group input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.form-group input.invalid {
-  border-color: var(--color-danger);
-}
-
-.error-msg {
-  margin-top: var(--spacing-xs);
-  font-size: var(--font-size-xs);
-  color: var(--color-danger);
-}
-
-.hint {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-xs);
-  padding: var(--spacing-sm);
-  background: var(--color-bg-secondary);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-}
-
-.hint-icon {
-  flex-shrink: 0;
-  font-size: 14px;
-}
-
-.hint a {
-  color: var(--color-accent);
-  text-decoration: none;
-}
-
-.hint a:hover {
-  text-decoration: underline;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--spacing-sm);
-}
-
-.dialog-btn {
-  padding: 8px 20px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  transition: all var(--transition-fast);
-  min-width: 80px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.dialog-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dialog-btn.cancel {
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-}
-
-.dialog-btn.cancel:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.dialog-btn.confirm {
-  background: var(--color-accent);
-  color: white;
-  border: none;
-}
-
-.dialog-btn.confirm:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>

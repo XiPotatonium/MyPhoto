@@ -11,8 +11,7 @@
 .right-panel {
   width: 100%;
   height: 100%;
-  background: var(--color-bg-secondary);
+  background: hsl(var(--secondary));
   overflow-y: auto;
-  padding: var(--spacing-lg);
 }
 </style>

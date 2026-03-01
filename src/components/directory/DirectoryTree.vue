@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { FolderOpen, RefreshCw } from 'lucide-vue-next'
 import type { DirectoryNode } from '../../types/directory'
 import DirectoryTreeNode from './DirectoryTreeNode.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
+import { Button } from '../ui/button'
 
 const props = defineProps<{
   rootPath: string | null
@@ -44,6 +46,12 @@ async function selectRootDirectory() {
   }
 }
 
+function getRootFolderName(): string {
+  if (!props.rootPath) return ''
+  const parts = props.rootPath.split(/[/\\]/)
+  return parts[parts.length - 1] || props.rootPath
+}
+
 function onFolderSelected(path: string) {
   selectedPath.value = path
   emit('folder-selected', path)
@@ -80,20 +88,43 @@ watch(() => props.rootPath, (newPath) => {
 
 <template>
   <div class="directory-tree" @contextmenu.prevent="onContextMenu">
-    <div v-if="!rootPath" class="tree-empty" @click="selectRootDirectory">
-      点击此处设置根目录
+    <div v-if="!rootPath" class="tree-empty-state">
+      <Button variant="outline" class="gap-2" @click="selectRootDirectory">
+        <FolderOpen class="h-4 w-4" />
+        选择文件夹
+      </Button>
     </div>
-    <div v-else-if="loading" class="tree-loading">加载中...</div>
-    <div v-else-if="tree" class="tree-content">
-      <DirectoryTreeNode
-        :node="tree"
-        :level="0"
-        :selected-path="selectedPath"
-        :expanded-paths="expandedPaths"
-        @select="onFolderSelected"
-        @toggle="toggleExpand"
-      />
-    </div>
+    <template v-else>
+      <div class="tree-header">
+        <div class="tree-header-title" :title="rootPath">
+          <FolderOpen class="h-4 w-4 text-primary" />
+          <span class="truncate">{{ getRootFolderName() }}</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-7 w-7 shrink-0"
+          :disabled="loading"
+          @click="() => rootPath && loadTree(rootPath)"
+        >
+          <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+        </Button>
+      </div>
+      <div v-if="loading" class="tree-loading">
+        <RefreshCw class="h-5 w-5 animate-spin text-muted-foreground" />
+        <span>加载中...</span>
+      </div>
+      <div v-else-if="tree" class="tree-content">
+        <DirectoryTreeNode
+          :node="tree"
+          :level="0"
+          :selected-path="selectedPath"
+          :expanded-paths="expandedPaths"
+          @select="onFolderSelected"
+          @toggle="toggleExpand"
+        />
+      </div>
+    </template>
     <ContextMenu
       :visible="menuState.visible"
       :x="menuState.x"
@@ -110,29 +141,52 @@ watch(() => props.rootPath, (newPath) => {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--spacing-xs) 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.tree-empty {
+.tree-empty-state {
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
+  padding: var(--spacing-lg);
 }
 
-.tree-empty:hover {
-  color: var(--color-accent);
+.tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  flex-shrink: 0;
+}
+
+.tree-header-title {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  overflow: hidden;
+  flex: 1;
+}
+
+.tree-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-xs) 0;
 }
 
 .tree-loading {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--spacing-sm);
   height: 100%;
-  color: var(--color-text-muted);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 </style>

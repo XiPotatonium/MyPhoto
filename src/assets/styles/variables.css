@@ -1,84 +1,54 @@
 :root {
-  /* Colors - Light mode */
-  --color-bg-primary: #ffffff;
-  --color-bg-secondary: #f5f5f5;
-  --color-bg-tertiary: #e8e8e8;
-  --color-bg-hover: #eaeaea;
-  --color-text-primary: #1a1a1a;
-  --color-text-secondary: #666666;
-  --color-text-muted: #999999;
-  --color-border: #d4d4d4;
-  --color-border-light: #e8e8e8;
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-light: #dbeafe;
-  --color-danger: #dc2626;
-  --color-danger-hover: #b91c1c;
+  /* App-specific semantic colors - mapped to shadcn variables */
+  --color-bg-primary: hsl(var(--background));
+  --color-bg-secondary: hsl(var(--secondary));
+  --color-bg-tertiary: hsl(var(--muted));
+  --color-bg-hover: hsl(var(--accent));
+  --color-text-primary: hsl(var(--foreground));
+  --color-text-secondary: hsl(var(--muted-foreground));
+  --color-text-muted: hsl(var(--muted-foreground) / 0.7);
+  --color-border: hsl(var(--border));
+  --color-border-light: hsl(var(--border) / 0.5);
+  --color-accent: hsl(var(--primary));
+  --color-accent-hover: hsl(var(--primary) / 0.9);
+  --color-accent-light: hsl(var(--accent));
+  --color-danger: hsl(var(--destructive));
+  --color-danger-hover: hsl(var(--destructive) / 0.9);
   --color-star: #f59e0b;
-  --color-star-empty: #d1d5db;
-  --color-badge-bg: #2563eb;
-  --color-badge-text: #ffffff;
-  --color-overlay: rgba(0, 0, 0, 0.4);
+  --color-star-empty: hsl(var(--muted-foreground) / 0.3);
+  --color-badge-bg: hsl(var(--primary));
+  --color-badge-text: hsl(var(--primary-foreground));
+  --color-overlay: hsl(var(--foreground) / 0.4);
 
-  /* Spacing */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 12px;
-  --spacing-lg: 16px;
-  --spacing-xl: 24px;
+  /* Spacing - shadcn standard */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 0.75rem;
+  --spacing-lg: 1rem;
+  --spacing-xl: 1.5rem;
+  --spacing-2xl: 2rem;
 
   /* Sizes */
-  --topbar-height: 40px;
+  --topbar-height: 48px;
   --thumbnail-size: 130px;
-  --left-panel-width: 310px;
-  --right-panel-width: 280px;
+  --left-panel-width: 320px;
+  --right-panel-width: 300px;
   --splitter-size: 4px;
-  --tree-indent: 16px;
+  --tree-indent: 1rem;
 
-  /* Typography */
-  --font-size-xs: 11px;
-  --font-size-sm: 12px;
-  --font-size-base: 13px;
-  --font-size-lg: 14px;
+  /* Typography - shadcn standard */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.125rem;
 
-  /* Borders */
-  --radius-sm: 3px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.12);
+  /* Shadows - modern elevation */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 
   /* Transitions */
-  --transition-fast: 0.15s ease;
-  --transition-normal: 0.2s ease;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg-primary: #1a1a1a;
-    --color-bg-secondary: #242424;
-    --color-bg-tertiary: #2e2e2e;
-    --color-bg-hover: #333333;
-    --color-text-primary: #e4e4e4;
-    --color-text-secondary: #a0a0a0;
-    --color-text-muted: #707070;
-    --color-border: #3a3a3a;
-    --color-border-light: #303030;
-    --color-accent: #3b82f6;
-    --color-accent-hover: #60a5fa;
-    --color-accent-light: #1e3a5f;
-    --color-danger: #ef4444;
-    --color-danger-hover: #f87171;
-    --color-star: #f59e0b;
-    --color-star-empty: #4b5563;
-    --color-badge-bg: #3b82f6;
-    --color-badge-text: #ffffff;
-    --color-overlay: rgba(0, 0, 0, 0.6);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
-  }
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }

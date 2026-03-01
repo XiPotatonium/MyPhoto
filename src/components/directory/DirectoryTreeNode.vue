@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ChevronRight, Folder, FolderOpen } from 'lucide-vue-next'
 import type { DirectoryNode } from '../../types/directory'
+import { cn } from '../../lib/utils'
 
 const props = defineProps<{
   node: DirectoryNode
@@ -27,15 +29,24 @@ function onClick() {
 <template>
   <div class="tree-node-wrapper">
     <div
-      class="tree-node"
-      :class="{ selected: selectedPath === node.path }"
-      :style="{ paddingLeft: (level * 16 + 8) + 'px' }"
+      :class="cn(
+        'tree-node',
+        selectedPath === node.path && 'selected'
+      )"
+      :style="{ paddingLeft: `calc(${level} * var(--tree-indent) + var(--spacing-sm))` }"
       @click="onClick"
     >
-      <span class="tree-arrow" :class="{ expanded: isExpanded(), hidden: !hasChildren() }">
-        &#9654;
-      </span>
-      <span class="tree-icon">&#128193;</span>
+      <ChevronRight
+        :class="cn(
+          'tree-arrow h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150',
+          isExpanded() && 'rotate-90',
+          !hasChildren() && 'invisible'
+        )"
+      />
+      <component
+        :is="isExpanded() ? FolderOpen : Folder"
+        class="tree-icon h-4 w-4 shrink-0 text-primary"
+      />
       <span class="tree-label">{{ node.name }}</span>
     </div>
     <div v-if="isExpanded() && hasChildren()" class="tree-children">
@@ -58,46 +69,31 @@ function onClick() {
   display: flex;
   align-items: center;
   gap: var(--spacing-xs);
-  padding: 3px 8px;
+  padding: var(--spacing-xs) var(--spacing-sm);
   cursor: pointer;
   white-space: nowrap;
   font-size: var(--font-size-sm);
-  transition: background var(--transition-fast);
+  border-radius: calc(var(--radius) - 4px);
+  margin: 0 var(--spacing-xs);
+  transition: all var(--transition-fast);
 }
 
 .tree-node:hover {
-  background: var(--color-bg-hover);
+  background: hsl(var(--accent));
 }
 
 .tree-node.selected {
-  background: var(--color-accent-light);
-  color: var(--color-accent);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
-.tree-arrow {
-  font-size: 8px;
-  width: 12px;
-  text-align: center;
-  transition: transform var(--transition-fast);
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-}
-
-.tree-arrow.expanded {
-  transform: rotate(90deg);
-}
-
-.tree-arrow.hidden {
-  visibility: hidden;
-}
-
-.tree-icon {
-  font-size: var(--font-size-base);
-  flex-shrink: 0;
+.tree-node.selected .tree-icon {
+  color: hsl(var(--primary-foreground));
 }
 
 .tree-label {
   overflow: hidden;
   text-overflow: ellipsis;
+  font-weight: 500;
 }
 </style>

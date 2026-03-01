@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 
 export interface MenuItemDef {
   label: string
   action: () => void
 }
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   x: number
   y: number
@@ -30,6 +30,31 @@ function onItemClick(item: MenuItemDef) {
   emit('close')
 }
 
+// Adjust position to keep menu within viewport
+const adjustedPosition = ref({ x: props.x, y: props.y })
+
+watch(() => [props.x, props.y, props.visible], () => {
+  if (!props.visible) return
+  
+  const menuWidth = 180
+  const menuHeight = Math.min(props.items.length * 36 + 8, 300)
+  
+  let newX = props.x
+  let newY = props.y
+  
+  // Keep within viewport horizontally
+  if (newX + menuWidth > window.innerWidth) {
+    newX = window.innerWidth - menuWidth - 8
+  }
+  
+  // Keep within viewport vertically
+  if (newY + menuHeight > window.innerHeight) {
+    newY = window.innerHeight - menuHeight - 8
+  }
+  
+  adjustedPosition.value = { x: Math.max(8, newX), y: Math.max(8, newY) }
+}, { immediate: true })
+
 onMounted(() => {
   document.addEventListener('mousedown', onClickOutside)
 })
@@ -41,45 +66,67 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="visible"
-      ref="menuRef"
-      class="context-menu"
-      :style="{ left: x + 'px', top: y + 'px' }"
-    >
+    <Transition name="menu">
       <div
-        v-for="(item, i) in items"
-        :key="i"
-        class="context-menu-item"
-        @click="onItemClick(item)"
+        v-if="visible"
+        ref="menuRef"
+        class="context-menu"
+        :style="{ left: adjustedPosition.x + 'px', top: adjustedPosition.y + 'px' }"
       >
-        {{ item.label }}
+        <div
+          v-for="(item, i) in items"
+          :key="i"
+          class="context-menu-item"
+          @click="onItemClick(item)"
+        >
+          {{ item.label }}
+        </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
 <style scoped>
 .context-menu {
   position: fixed;
-  min-width: 140px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  min-width: 160px;
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
   box-shadow: var(--shadow-lg);
-  padding: var(--spacing-xs) 0;
+  padding: var(--spacing-xs);
   z-index: 9999;
 }
 
 .context-menu-item {
-  padding: 6px 16px;
+  padding: var(--spacing-sm) var(--spacing-md);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: all var(--transition-fast);
+  border-radius: calc(var(--radius) - 4px);
+  color: hsl(var(--popover-foreground));
 }
 
 .context-menu-item:hover {
-  background: var(--color-accent);
-  color: white;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+/* Transition animations */
+.menu-enter-active,
+.menu-leave-active {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.menu-enter-to,
+.menu-leave-from {
+  opacity: 1;
+  transform: scale(1);
 }
 </style>

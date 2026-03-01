@@ -2,6 +2,7 @@
 import { provide, ref, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppState } from './stores/appState'
+import { useTheme } from './composables/useTheme'
 import type { ImageGroup } from './types/image'
 import TopFilterBar from './components/layout/TopFilterBar.vue'
 import LeftPanel from './components/layout/LeftPanel.vue'
@@ -16,6 +17,9 @@ import ConfirmDialog from './components/common/ConfirmDialog.vue'
 
 const appState = useAppState()
 provide('appState', appState)
+
+// Initialize theme
+useTheme()
 
 const imageBrowserRef = ref<InstanceType<typeof ImageBrowser> | null>(null)
 const exifDisplayRef = ref<InstanceType<typeof ExifDisplay> | null>(null)
@@ -189,7 +193,7 @@ onUnmounted(() => {
   min-width: 200px;
   max-width: 500px;
   flex-shrink: 0;
-  border-right: 1px solid var(--color-border);
+  border-right: 1px solid hsl(var(--border));
   overflow: hidden;
 }
 
@@ -204,7 +208,7 @@ onUnmounted(() => {
   min-width: 200px;
   max-width: 400px;
   flex-shrink: 0;
-  border-left: 1px solid var(--color-border);
+  border-left: 1px solid hsl(var(--border));
   overflow: hidden;
 }
 </style>

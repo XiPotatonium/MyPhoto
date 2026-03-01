@@ -1,5 +1,15 @@
 <script setup lang="ts">
+import { useTheme } from '../../composables/useTheme'
 import type { SortField, SortOrder } from '../../types/image'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select'
+import { Button } from '../ui/button'
+import { Sun, Moon, ArrowUp, ArrowDown } from 'lucide-vue-next'
 
 defineProps<{
   sortField: SortField
@@ -10,28 +20,60 @@ const emit = defineEmits<{
   'update:sortField': [field: SortField]
   'update:sortOrder': [order: SortOrder]
 }>()
+
+const { resolvedTheme, toggleTheme } = useTheme()
+
+const sortOptions = [
+  { value: 'name', label: '文件名' },
+  { value: 'date', label: '拍摄时间' },
+  { value: 'rating', label: '星级评分' },
+] as const
 </script>
 
 <template>
   <div class="top-filter-bar">
-    <div class="filter-group">
-      <label class="filter-label">排序</label>
-      <select
-        class="filter-select"
-        :value="sortField"
-        @change="emit('update:sortField', ($event.target as HTMLSelectElement).value as SortField)"
+    <div class="filter-section">
+      <span class="filter-label">排序</span>
+      <Select
+        :model-value="sortField"
+        @update:model-value="emit('update:sortField', $event as SortField)"
       >
-        <option value="name">按文件名</option>
-        <option value="date">按时间</option>
-        <option value="rating">按星级</option>
-      </select>
-      <button
-        class="order-btn"
+        <SelectTrigger class="w-[140px] h-8">
+          <SelectValue placeholder="选择排序方式" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem
+            v-for="opt in sortOptions"
+            :key="opt.value"
+            :value="opt.value"
+          >
+            {{ opt.label }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      <Button
+        variant="outline"
+        size="icon"
+        class="h-8 w-8"
         :title="sortOrder === 'asc' ? '升序' : '降序'"
         @click="emit('update:sortOrder', sortOrder === 'asc' ? 'desc' : 'asc')"
       >
-        {{ sortOrder === 'asc' ? '↑' : '↓' }}
-      </button>
+        <ArrowUp v-if="sortOrder === 'asc'" class="h-4 w-4" />
+        <ArrowDown v-else class="h-4 w-4" />
+      </Button>
+    </div>
+
+    <div class="actions-section">
+      <Button
+        variant="ghost"
+        size="icon"
+        class="h-8 w-8"
+        :title="resolvedTheme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
+        @click="toggleTheme"
+      >
+        <Sun v-if="resolvedTheme === 'light'" class="h-4 w-4" />
+        <Moon v-else class="h-4 w-4" />
+      </Button>
     </div>
   </div>
 </template>
@@ -41,13 +83,14 @@ const emit = defineEmits<{
   height: var(--topbar-height);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 var(--spacing-lg);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
   flex-shrink: 0;
 }
 
-.filter-group {
+.filter-section {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
@@ -55,37 +98,13 @@ const emit = defineEmits<{
 
 .filter-label {
   font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
 }
 
-.filter-select {
-  padding: 3px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  font-size: var(--font-size-sm);
-  outline: none;
-}
-
-.filter-select:focus {
-  border-color: var(--color-accent);
-}
-
-.order-btn {
-  width: 26px;
-  height: 26px;
+.actions-section {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  font-size: var(--font-size-lg);
-  transition: all var(--transition-fast);
-}
-
-.order-btn:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-accent);
+  gap: var(--spacing-xs);
 }
 </style>

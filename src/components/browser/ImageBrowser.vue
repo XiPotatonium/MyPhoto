@@ -2,6 +2,7 @@
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { FolderOpen, Image, RefreshCw } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
@@ -369,9 +370,24 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
 
 <template>
   <div ref="browserEl" class="image-browser" @contextmenu.prevent="onContextMenu">
-    <div v-if="!selectedFolder" class="browser-empty">选择一个文件夹以浏览图像</div>
-    <div v-else-if="loading" class="browser-loading">加载中...</div>
-    <div v-else-if="images.length === 0" class="browser-empty">此文件夹中没有图像文件</div>
+    <div v-if="!selectedFolder" class="browser-empty-state">
+      <div class="empty-icon">
+        <FolderOpen class="h-12 w-12 text-muted-foreground/50" />
+      </div>
+      <p class="empty-title">选择文件夹</p>
+      <p class="empty-desc">从左侧目录树选择一个文件夹以浏览图像</p>
+    </div>
+    <div v-else-if="loading" class="browser-loading">
+      <RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
+      <span>加载图像中...</span>
+    </div>
+    <div v-else-if="images.length === 0" class="browser-empty-state">
+      <div class="empty-icon">
+        <Image class="h-12 w-12 text-muted-foreground/50" />
+      </div>
+      <p class="empty-title">没有图像</p>
+      <p class="empty-desc">此文件夹中没有支持的图像文件</p>
+    </div>
     <RecycleScroller
       v-else
       class="scroller"
@@ -414,21 +430,53 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: hsl(var(--background));
 }
 
-.browser-empty,
-.browser-loading {
+.browser-empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--color-text-muted);
+  padding: var(--spacing-xl);
+  text-align: center;
+}
+
+.empty-icon {
+  margin-bottom: var(--spacing-md);
+}
+
+.empty-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: var(--spacing-xs);
+}
+
+.empty-desc {
+  font-size: var(--font-size-sm);
+  color: hsl(var(--muted-foreground));
+}
+
+.browser-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  height: 100%;
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
 .scroller {
   flex: 1;
   height: 100%;
+}
+
+.scroller :deep(.vue-recycle-scroller__item-wrapper) {
+  padding: var(--spacing-sm) 0;
 }
 
 .thumbnail-row {

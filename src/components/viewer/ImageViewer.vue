@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { ImageOff, Loader2 } from 'lucide-vue-next'
 import type { ImageGroup } from '../../types/image'
 
 const props = defineProps<{
@@ -47,8 +48,14 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
 
 <template>
   <div class="image-viewer">
-    <div v-if="!image" class="viewer-empty">选择图像以预览</div>
-    <div v-else-if="loading" class="viewer-loading">加载中...</div>
+    <div v-if="!image" class="viewer-empty-state">
+      <ImageOff class="h-16 w-16 text-muted-foreground/30" />
+      <p>选择图像以预览</p>
+    </div>
+    <div v-else-if="loading" class="viewer-loading">
+      <Loader2 class="h-10 w-10 animate-spin text-muted-foreground" />
+      <span>加载图像...</span>
+    </div>
     <div v-else-if="imageData" class="viewer-content">
       <img
         :src="'data:image/jpeg;base64,' + imageData"
@@ -56,7 +63,10 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
         draggable="false"
       />
     </div>
-    <div v-else class="viewer-empty">无法加载图像</div>
+    <div v-else class="viewer-empty-state">
+      <ImageOff class="h-16 w-16 text-muted-foreground/30" />
+      <p>无法加载图像</p>
+    </div>
   </div>
 </template>
 
@@ -67,12 +77,26 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: var(--color-bg-primary);
+  background: hsl(var(--background));
 }
 
-.viewer-empty,
+.viewer-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  color: hsl(var(--muted-foreground));
+  font-size: var(--font-size-sm);
+}
+
 .viewer-loading {
-  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  color: hsl(var(--muted-foreground));
   font-size: var(--font-size-sm);
 }
 
@@ -82,12 +106,14 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-md);
+  padding: var(--spacing-lg);
 }
 
 .viewer-img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
+  border-radius: calc(var(--radius) - 4px);
+  box-shadow: var(--shadow-lg);
 }
 </style>
