@@ -110,8 +110,10 @@ onUnmounted(() => {
     <TopFilterBar
       :sort-field="appState.state.sortField"
       :sort-order="appState.state.sortOrder"
+      :theme="appState.state.theme"
       @update:sort-field="appState.setSortField"
       @update:sort-order="appState.setSortOrder"
+      @update:theme="appState.setTheme"
     />
     <div class="main-layout">
       <div class="left-panel-container">
@@ -176,6 +178,7 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  background: var(--color-bg-primary);
 }
 
 .main-layout {
@@ -186,25 +189,44 @@ onUnmounted(() => {
 
 .left-panel-container {
   width: var(--left-panel-width);
-  min-width: 200px;
+  min-width: 220px;
   max-width: 500px;
   flex-shrink: 0;
   border-right: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
   overflow: hidden;
 }
 
 .center-panel-container {
   flex: 1;
-  min-width: 200px;
+  min-width: 280px;
   overflow: hidden;
+  background: var(--color-bg-primary);
 }
 
 .right-panel-container {
   width: var(--right-panel-width);
-  min-width: 200px;
-  max-width: 400px;
+  min-width: 240px;
+  max-width: 420px;
   flex-shrink: 0;
   border-left: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
   overflow: hidden;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .right-panel-container {
+    width: 260px;
+  }
+}
+
+@media (max-width: 768px) {
+  .left-panel-container {
+    width: 200px;
+  }
+  .right-panel-container {
+    display: none;
+  }
 }
 </style>

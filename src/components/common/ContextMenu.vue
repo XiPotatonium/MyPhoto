@@ -41,45 +41,74 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="visible"
-      ref="menuRef"
-      class="context-menu"
-      :style="{ left: x + 'px', top: y + 'px' }"
-    >
+    <Transition name="menu">
       <div
-        v-for="(item, i) in items"
-        :key="i"
-        class="context-menu-item"
-        @click="onItemClick(item)"
+        v-if="visible"
+        ref="menuRef"
+        class="context-menu"
+        :style="{ left: x + 'px', top: y + 'px' }"
       >
-        {{ item.label }}
+        <div
+          v-for="(item, i) in items"
+          :key="i"
+          class="context-menu-item"
+          @click="onItemClick(item)"
+        >
+          <span class="item-text">{{ item.label }}</span>
+        </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
 <style scoped>
 .context-menu {
   position: fixed;
-  min-width: 140px;
-  background: var(--color-bg-primary);
+  min-width: 160px;
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: var(--spacing-xs) 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  padding: var(--spacing-1) 0;
   z-index: 9999;
+  backdrop-filter: blur(8px);
 }
 
 .context-menu-item {
-  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-2) var(--spacing-4);
+  margin: 0 var(--spacing-1);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: background var(--transition-fast);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
 }
 
 .context-menu-item:hover {
-  background: var(--color-accent);
-  color: white;
+  background: var(--color-accent-alpha);
+  color: var(--color-accent);
+}
+
+.context-menu-item:active {
+  transform: scale(0.98);
+}
+
+.item-text {
+  flex: 1;
+}
+
+/* Menu animation */
+.menu-enter-active,
+.menu-leave-active {
+  transition: all var(--transition-fast);
+}
+
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
 }
 </style>

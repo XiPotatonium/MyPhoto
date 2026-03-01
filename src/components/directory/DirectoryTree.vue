@@ -80,20 +80,47 @@ watch(() => props.rootPath, (newPath) => {
 
 <template>
   <div class="directory-tree" @contextmenu.prevent="onContextMenu">
-    <div v-if="!rootPath" class="tree-empty" @click="selectRootDirectory">
-      点击此处设置根目录
+    <!-- Empty State -->
+    <div v-if="!rootPath" class="tree-state empty" @click="selectRootDirectory">
+      <div class="state-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          <line x1="12" y1="11" x2="12" y2="17"/>
+          <line x1="9" y1="14" x2="15" y2="14"/>
+        </svg>
+      </div>
+      <div class="state-title">设置根目录</div>
+      <div class="state-desc">点击选择照片文件夹</div>
     </div>
-    <div v-else-if="loading" class="tree-loading">加载中...</div>
+    
+    <!-- Loading State -->
+    <div v-else-if="loading" class="tree-state loading">
+      <div class="loading-spinner">
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+        <div class="spinner-dot"></div>
+      </div>
+      <div class="state-text">扫描文件夹...</div>
+    </div>
+    
+    <!-- Tree Content -->
     <div v-else-if="tree" class="tree-content">
-      <DirectoryTreeNode
-        :node="tree"
-        :level="0"
-        :selected-path="selectedPath"
-        :expanded-paths="expandedPaths"
-        @select="onFolderSelected"
-        @toggle="toggleExpand"
-      />
+      <div class="tree-header">
+        <span class="header-icon">📁</span>
+        <span class="header-title" :title="rootPath">{{ tree.name }}</span>
+      </div>
+      <div class="tree-body">
+        <DirectoryTreeNode
+          :node="tree"
+          :level="0"
+          :selected-path="selectedPath"
+          :expanded-paths="expandedPaths"
+          @select="onFolderSelected"
+          @toggle="toggleExpand"
+        />
+      </div>
     </div>
+    
     <ContextMenu
       :visible="menuState.visible"
       :x="menuState.x"
@@ -110,29 +137,124 @@ watch(() => props.rootPath, (newPath) => {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--spacing-xs) 0;
+  background: var(--color-bg-secondary);
 }
 
-.tree-empty {
+/* State Screens */
+.tree-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--color-text-muted);
+  padding: var(--spacing-6);
+  text-align: center;
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
 }
 
-.tree-empty:hover {
+.tree-state.empty:hover {
+  background: var(--color-bg-hover);
+}
+
+.state-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-3);
+  opacity: 0.5;
+  transition: all var(--transition-fast);
+}
+
+.tree-state.empty:hover .state-icon {
+  opacity: 0.8;
   color: var(--color-accent);
+  transform: scale(1.1);
 }
 
-.tree-loading {
+.state-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.state-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-1);
+}
+
+.state-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Loading Animation */
+.loading-spinner {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--spacing-3);
+}
+
+.spinner-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--color-accent);
+  border-radius: 50%;
+  animation: bounce 1.4s ease-in-out infinite both;
+}
+
+.spinner-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.spinner-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+.state-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* Tree Content */
+.tree-content {
+  padding: var(--spacing-2) 0;
+}
+
+.tree-header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--color-text-muted);
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin: 0 var(--spacing-2) var(--spacing-2);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.header-icon {
+  font-size: var(--font-size-md);
+  flex-shrink: 0;
+}
+
+.header-title {
+  flex: 1;
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-body {
+  padding: var(--spacing-1) 0;
 }
 </style>

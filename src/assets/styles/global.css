@@ -1,3 +1,7 @@
+/* ========================================
+   MyPhoto - Global Styles
+   ======================================== */
+
 *,
 *::before,
 *::after {
@@ -13,14 +17,16 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-family-body);
   font-size: var(--font-size-base);
-  line-height: 1.5;
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
   color: var(--color-text-primary);
   background-color: var(--color-bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
 #app {
@@ -29,24 +35,47 @@ body {
   overflow: hidden;
 }
 
+/* ----------------------------------------
+   Interactive Elements
+   ---------------------------------------- */
 button {
   font-family: inherit;
   font-size: inherit;
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
   border: none;
   background: none;
   color: inherit;
+  transition: all var(--transition-fast);
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 input, select {
   font-family: inherit;
   font-size: inherit;
   color: inherit;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
 }
 
+input:focus, select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ----------------------------------------
+   Scrollbars - Modern, minimal
+   ---------------------------------------- */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -54,10 +83,76 @@ input, select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ----------------------------------------
+   Selection
+   ---------------------------------------- */
+::selection {
+  background: var(--color-accent-alpha);
+  color: var(--color-text-primary);
+}
+
+/* ----------------------------------------
+   Utility Classes
+   ---------------------------------------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Fade animation */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Slide animation */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all var(--transition-spring);
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Scale animation */
+.scale-enter-active,
+.scale-leave-active {
+  transition: all var(--transition-spring);
+}
+
+.scale-enter-from,
+.scale-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
 }

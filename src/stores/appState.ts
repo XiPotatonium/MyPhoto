@@ -1,5 +1,7 @@
-import { reactive, readonly } from 'vue'
+import { reactive, readonly, watch } from 'vue'
 import type { ImageGroup, SortField, SortOrder } from '../types/image'
+
+export type Theme = 'light' | 'dark' | 'system'
 
 interface ConfirmDialogState {
   visible: boolean
@@ -17,7 +19,28 @@ interface AppState {
   currentFormat: 'jpg' | 'raw'
   sortField: SortField
   sortOrder: SortOrder
+  theme: Theme
   confirmDialog: ConfirmDialogState
+}
+
+const STORAGE_KEY = 'myphoto-theme'
+
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    return stored
+  }
+  return 'system'
+}
+
+function applyTheme(theme: Theme) {
+  const root = document.documentElement
+  
+  if (theme === 'system') {
+    root.removeAttribute('data-theme')
+  } else {
+    root.setAttribute('data-theme', theme)
+  }
 }
 
 const state = reactive<AppState>({
@@ -28,6 +51,7 @@ const state = reactive<AppState>({
   currentFormat: 'jpg',
   sortField: 'name',
   sortOrder: 'asc',
+  theme: getInitialTheme(),
   confirmDialog: {
     visible: false,
     title: '',
@@ -35,6 +59,15 @@ const state = reactive<AppState>({
     options: [],
     onConfirm: () => {},
   },
+})
+
+// Apply initial theme
+applyTheme(state.theme)
+
+// Watch for theme changes
+watch(() => state.theme, (newTheme) => {
+  localStorage.setItem(STORAGE_KEY, newTheme)
+  applyTheme(newTheme)
 })
 
 export function useAppState() {
@@ -69,6 +102,10 @@ export function useAppState() {
     state.sortOrder = order
   }
 
+  function setTheme(theme: Theme) {
+    state.theme = theme
+  }
+
   function showConfirmDialog(
     title: string,
     message: string,
@@ -91,6 +128,7 @@ export function useAppState() {
     setCurrentFormat,
     setSortField,
     setSortOrder,
+    setTheme,
     showConfirmDialog,
     hideConfirmDialog,
   }
