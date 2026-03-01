@@ -70,10 +70,20 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
         info.camera_model = Some(field.display_value().to_string().trim_matches('"').to_string());
     }
 
-    // Lens Model
-    if let Some(field) = exif_data.get_field(exif::Tag::LensModel, exif::In::PRIMARY) {
-        info.lens_model = Some(field.display_value().to_string().trim_matches('"').to_string());
-    }
+    // Lens Model & Make
+    let lens_make = exif_data
+        .get_field(exif::Tag::LensMake, exif::In::PRIMARY)
+        .and_then(|f| parse_ascii_field(&f.value));
+    let lens_model = exif_data
+        .get_field(exif::Tag::LensModel, exif::In::PRIMARY)
+        .and_then(|f| parse_ascii_field(&f.value));
+
+    info.lens_model = match (lens_make, lens_model) {
+        (Some(make), Some(model)) => Some(format!("{}: {}", make, model)),
+        (None, Some(model)) => Some(model),
+        (Some(make), None) => Some(make),
+        (None, None) => None,
+    };
 
     // Focal Length
     if let Some(field) = exif_data.get_field(exif::Tag::FocalLength, exif::In::PRIMARY) {
@@ -155,6 +165,21 @@ fn parse_gps_rational(value: &exif::Value) -> Option<f64> {
             let minutes = v[1].to_f64();
             let seconds = v[2].to_f64();
             return Some(degrees + minutes / 60.0 + seconds / 3600.0);
+        }
+    }
+    None
+}
+
+/// Parse ASCII EXIF value and return the first non-empty string.
+/// Some cameras store multiple strings in ASCII fields (e.g., ["lens_name", "", "", ...]),
+/// but we only want the actual lens name, not the empty strings.
+fn parse_ascii_field(value: &exif::Value) -> Option<String> {
+    if let exif::Value::Ascii(ref vec) = value {
+        for s in vec {
+            let trimmed = String::from_utf8_lossy(s).trim().to_string();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
         }
     }
     None
