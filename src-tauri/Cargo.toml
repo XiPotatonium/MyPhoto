@@ -52,3 +52,7 @@ thiserror = "2"
 
 # RAF decoding
 byteorder = "1"
+
+# LRU Cache
+lru = "0.12"
+once_cell = "1"

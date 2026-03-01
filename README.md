@@ -1,5 +1,7 @@
 # MyPhoto
 
+一个ai编程尝试，几乎全部使用vibe coding实现。
+
 一个专为摄影师打造的桌面照片管理工具，基于 Tauri + Vue 构建，支持 Windows 和 macOS 双平台。
 
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +27,7 @@
 
 ### 🎨 格式支持
 - **通用格式**：JPEG、PNG
-- **RAW 格式**：支持富士 RAF 格式（内置解码器）
+- **RAW 格式**：支持富士 RAF 格式（内置解码器）。由于我没有其他品牌的相机，暂时没有支持其他raw格式的计划。
 - **智能识别**：自动检测并关联同名不同格式的文件
 
 ### ⚡ 性能优化

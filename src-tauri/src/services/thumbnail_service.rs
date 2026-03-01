@@ -3,10 +3,14 @@ use std::path::Path;
 
 use base64::Engine;
 use image::imageops::FilterType;
-use image::{ImageDecoder, ImageReader};
+use image::{ImageDecoder, ImageReader, DynamicImage};
+
+use crate::services::image_cache::get_cache;
+
 const THUMBNAIL_SIZE: u32 = 260;
 
-pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
+/// 加载图片（用于缓存回调，处理 EXIF 方向）
+fn load_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> {
     let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -16,34 +20,27 @@ pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppE
     let img = match ext.as_str() {
         "jpg" | "jpeg" | "png" => {
             // Use ImageReader to handle EXIF orientation
-            // First get the decoder to read orientation, then decode and apply
             let reader = ImageReader::open(file_path)?;
             let mut decoder = reader.into_decoder()?;
             let orientation = decoder.orientation()?;
-            let mut img = image::DynamicImage::from_decoder(decoder)?;
+            let mut img = DynamicImage::from_decoder(decoder)?;
             img.apply_orientation(orientation);
             img
         }
         "dng" => {
-            // For DNG files, try to read the embedded JPEG preview via EXIF
-            // If that fails, return a placeholder
             match extract_dng_preview(file_path) {
                 Ok(img) => img,
                 Err(_) => {
                     // Return a simple gray placeholder for unsupported RAW
-                    let img = image::DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                    img
+                    DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE)
                 }
             }
         }
         "raf" => {
-            // For RAF files, use the embedded JPEG preview
             match extract_raf_preview(file_path) {
                 Ok(img) => img,
                 Err(_) => {
-                    // Return a simple gray placeholder for unsupported RAW
-                    let img = image::DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                    img
+                    DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE)
                 }
             }
         }
@@ -54,6 +51,14 @@ pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppE
             )));
         }
     };
+
+    Ok(img)
+}
+
+pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
+    // 使用缓存获取或加载图片
+    let cache = get_cache();
+    let img = cache.get_or_load(file_path, load_image)?;
 
     let thumb = img.resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, FilterType::Triangle);
 
@@ -89,43 +94,15 @@ fn extract_raf_preview(file_path: &Path) -> Result<image::DynamicImage, crate::e
 }
 
 pub fn read_full_image(file_path: &Path) -> Result<String, crate::error::AppError> {
-    let ext = file_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
+    // 使用缓存获取或加载图片（复用 load_original_image 处理 EXIF 方向）
+    let cache = get_cache();
+    let img = cache.get_or_load(file_path, load_image)?;
 
-    match ext.as_str() {
-        "jpg" | "jpeg" | "png" => {
-            let data = std::fs::read(file_path)?;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-            Ok(b64)
-        }
-        "dng" => {
-            // For DNG, convert to JPEG first
-            let img = image::open(file_path)?;
-            let mut buf = Vec::new();
-            let mut cursor = Cursor::new(&mut buf);
-            img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-            Ok(b64)
-        }
-        "raf" => {
-            // For RAF, extract the embedded JPEG preview
-            match extract_raf_preview(file_path) {
-                Ok(img) => {
-                    let mut buf = Vec::new();
-                    let mut cursor = Cursor::new(&mut buf);
-                    img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
-                    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-                    Ok(b64)
-                }
-                Err(e) => Err(e),
-            }
-        }
-        _ => Err(crate::error::AppError::General(format!(
-            "Unsupported format: {}",
-            ext
-        ))),
-    }
+    // 编码为 base64
+    let mut buf = Vec::new();
+    let mut cursor = Cursor::new(&mut buf);
+    img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+
+    Ok(b64)
 }
