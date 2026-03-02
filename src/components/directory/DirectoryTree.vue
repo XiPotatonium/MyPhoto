@@ -46,12 +46,6 @@ async function selectRootDirectory() {
   }
 }
 
-function getRootFolderName(): string {
-  if (!props.rootPath) return ''
-  const parts = props.rootPath.split(/[/\\]/)
-  return parts[parts.length - 1] || props.rootPath
-}
-
 function onFolderSelected(path: string) {
   selectedPath.value = path
   emit('folder-selected', path)

@@ -35,7 +35,7 @@
 - [x] 切换jpg和raw的图标有点难看，需要换掉
 - [x] 切换排序的toggle是透明的，影响观看。加入悬浮特效。
 - [x] gps添加面板(src/components/common/GPSDialog.vue)展示有问题，背景是透明的
-- [ ] 控件的padding需要优化，很多控件过于紧凑
+- [x] 控件的padding需要优化，很多控件过于紧凑
 
 # 图像加载速度优化
 

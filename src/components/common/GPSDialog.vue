@@ -68,120 +68,105 @@ defineExpose({ loading, reset })
 <template>
   <Dialog :open="visible" @update:open="(open) => !open && handleCancel()">
     <DialogContent
-      class="sm:max-w-[480px] border p-0 overflow-hidden shadow-2xl"
+      :show-close-button="false"
+      class="sm:max-w-[440px] p-0 overflow-hidden border shadow-xl"
       :class="cn(
         'bg-[hsl(var(--card))] border-[hsl(var(--border))]',
         'dark:bg-[hsl(var(--card))] dark:border-[hsl(var(--border))]'
       )"
     >
-      <!-- 顶部装饰区域 -->
-      <div class="relative overflow-hidden">
-        <!-- Light mode 渐变 -->
-        <div class="absolute inset-0 bg-gradient-to-br from-[hsl(var(--primary))]/10 via-transparent to-[hsl(var(--accent))]/10 dark:hidden" />
-        <!-- Dark mode 渐变 -->
-        <div class="absolute inset-0 bg-gradient-to-br from-[hsl(var(--primary))]/20 via-transparent to-[hsl(var(--accent))]/15 hidden dark:block" />
-        
-        <!-- 装饰光晕 -->
-        <div class="absolute -top-16 -right-16 w-32 h-32 bg-[hsl(var(--primary))]/20 rounded-full blur-3xl dark:bg-[hsl(var(--primary))]/15" />
-        <div class="absolute -bottom-8 -left-8 w-24 h-24 bg-[hsl(var(--accent))]/15 rounded-full blur-2xl dark:bg-[hsl(var(--accent))]/10" />
-        
-        <DialogHeader class="relative z-10 px-8 pt-8 pb-6">
-          <div class="flex items-center gap-4 mb-3">
-            <div class="flex items-center justify-center w-12 h-12 rounded-2xl bg-[hsl(var(--primary))] shadow-lg shadow-[hsl(var(--primary))]/25">
-              <MapPin class="h-6 w-6 text-[hsl(var(--primary-foreground))]" />
-            </div>
-            <div>
-              <DialogTitle class="text-xl font-semibold text-[hsl(var(--card-foreground))] tracking-tight">
-                添加 GPS 信息
-              </DialogTitle>
-              <DialogDescription class="text-[hsl(var(--muted-foreground))] text-sm mt-1">
-                为选中的图像添加地理位置坐标
-              </DialogDescription>
-            </div>
+      <!-- Header -->
+      <DialogHeader class="dialog-header">
+        <div class="header-content">
+          <div class="header-icon">
+            <MapPin class="h-5 w-5" />
           </div>
-        </DialogHeader>
-      </div>
+          <div class="header-text">
+            <DialogTitle class="dialog-title">
+              添加 GPS 信息
+            </DialogTitle>
+            <DialogDescription class="dialog-desc">
+              为选中的图像添加地理位置坐标
+            </DialogDescription>
+          </div>
+        </div>
+      </DialogHeader>
 
-      <!-- 表单内容 - 增加 padding 和间距 -->
-      <div class="px-8 pb-4 space-y-6">
+      <!-- 表单内容 -->
+      <div class="form-content">
         <!-- 纬度输入 -->
-        <div class="space-y-3">
-          <div class="flex items-center gap-2">
-            <Compass class="h-4 w-4 text-[hsl(var(--primary))]" />
-            <Label for="latitude" class="text-sm font-medium text-[hsl(var(--foreground))]">
+        <div class="input-group">
+          <div class="input-label">
+            <Compass class="input-icon" />
+            <Label for="latitude" class="label-text">
               纬度 Latitude
             </Label>
           </div>
-          <div class="relative">
+          <div class="input-wrapper">
             <Input
               id="latitude"
               v-model="latitude"
               type="text"
               placeholder="例如: 39.9042"
               :disabled="loading"
-              class="h-12 px-4 bg-[hsl(var(--background))] border-[hsl(var(--input))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:border-[hsl(var(--ring))] focus:ring-[hsl(var(--ring))]/20 rounded-xl transition-all duration-200"
+              class="gps-input"
               :class="cn(
-                latitude !== '' && !isValidLatitude && 'border-[hsl(var(--destructive))] focus:border-[hsl(var(--destructive))] focus:ring-[hsl(var(--destructive))]/20'
+                latitude !== '' && !isValidLatitude && 'input-error'
               )"
             />
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))] font-medium">
+            <div class="input-suffix">
               °N
             </div>
           </div>
-          <p v-if="latitude !== '' && !isValidLatitude" class="text-sm text-[hsl(var(--destructive))] flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-[hsl(var(--destructive))]" />
+          <p v-if="latitude !== '' && !isValidLatitude" class="error-msg">
+            <span class="error-dot" />
             纬度必须在 -90 到 90 之间
           </p>
         </div>
 
         <!-- 经度输入 -->
-        <div class="space-y-3">
-          <div class="flex items-center gap-2">
-            <Navigation class="h-4 w-4 text-[hsl(var(--primary))]" />
-            <Label for="longitude" class="text-sm font-medium text-[hsl(var(--foreground))]">
+        <div class="input-group">
+          <div class="input-label">
+            <Navigation class="input-icon" />
+            <Label for="longitude" class="label-text">
               经度 Longitude
             </Label>
           </div>
-          <div class="relative">
+          <div class="input-wrapper">
             <Input
               id="longitude"
               v-model="longitude"
               type="text"
               placeholder="例如: 116.4074"
               :disabled="loading"
-              class="h-12 px-4 bg-[hsl(var(--background))] border-[hsl(var(--input))] text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))] focus:border-[hsl(var(--ring))] focus:ring-[hsl(var(--ring))]/20 rounded-xl transition-all duration-200"
+              class="gps-input"
               :class="cn(
-                longitude !== '' && !isValidLongitude && 'border-[hsl(var(--destructive))] focus:border-[hsl(var(--destructive))] focus:ring-[hsl(var(--destructive))]/20'
+                longitude !== '' && !isValidLongitude && 'input-error'
               )"
             />
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-[hsl(var(--muted-foreground))] font-medium">
+            <div class="input-suffix">
               °E
             </div>
           </div>
-          <p v-if="longitude !== '' && !isValidLongitude" class="text-sm text-[hsl(var(--destructive))] flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-[hsl(var(--destructive))]" />
+          <p v-if="longitude !== '' && !isValidLongitude" class="error-msg">
+            <span class="error-dot" />
             经度必须在 -180 到 180 之间
           </p>
         </div>
 
-        <!-- 提示信息卡片 -->
-        <div class="relative overflow-hidden rounded-2xl bg-[hsl(var(--muted))]/50 border border-[hsl(var(--border))] p-5">
-          <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[hsl(var(--primary))]/60 via-[hsl(var(--accent))]/60 to-[hsl(var(--primary))]/60" />
-          <div class="flex items-start gap-4">
-            <div class="flex items-center justify-center w-10 h-10 rounded-xl bg-[hsl(var(--accent))]/20 shrink-0">
-              <Globe class="h-5 w-5 text-[hsl(var(--primary))]" />
-            </div>
-            <div class="space-y-1.5 pt-0.5">
-              <p class="text-sm font-medium text-[hsl(var(--foreground))]">
-                查找坐标
-              </p>
-              <p class="text-sm text-[hsl(var(--muted-foreground))] leading-relaxed">
+        <!-- 提示信息 -->
+        <div class="info-box">
+          <div class="info-content">
+            <Globe class="info-icon" />
+            <div class="info-text">
+              <p class="info-title">查找坐标</p>
+              <p class="info-desc">
                 访问
                 <a
                   href="https://jingweidu.bmcx.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]/80 transition-colors underline underline-offset-2 font-medium"
+                  class="info-link"
                 >
                   经纬度查询网站
                 </a>
@@ -192,26 +177,260 @@ defineExpose({ loading, reset })
         </div>
       </div>
 
-      <!-- 底部按钮 - 增加 padding -->
-      <DialogFooter class="px-8 pb-8 pt-4 gap-3">
-        <Button
-          variant="outline"
+      <!-- 底部按钮 -->
+      <DialogFooter class="dialog-footer">
+        <button
           :disabled="loading"
           @click="handleCancel"
-          class="h-11 px-6 bg-transparent border-[hsl(var(--border))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--accent))] hover:text-[hsl(var(--accent-foreground))] transition-all duration-200 rounded-xl"
+          class="dialog-btn dialog-btn--secondary"
         >
           取消
-        </Button>
-        <Button
+        </button>
+        <button
           :disabled="!canConfirm"
           @click="handleConfirm"
-          class="h-11 px-6 bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] hover:bg-[hsl(var(--primary))]/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 rounded-xl shadow-lg shadow-[hsl(var(--primary))]/20"
+          :class="cn('dialog-btn dialog-btn--primary', !canConfirm && 'dialog-btn--disabled')"
         >
           <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin" />
           <MapPin v-else class="mr-2 h-4 w-4" />
           <span>{{ loading ? '保存中...' : '确认添加' }}</span>
-        </Button>
+        </button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
 </template>
+
+<style scoped>
+/* Header 样式 */
+.dialog-header {
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  flex-shrink: 0;
+}
+
+.header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dialog-title {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: hsl(var(--card-foreground));
+  letter-spacing: -0.01em;
+}
+
+.dialog-desc {
+  font-size: var(--font-size-sm);
+  color: hsl(var(--muted-foreground));
+}
+
+/* 表单内容样式 */
+.form-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: 0 var(--spacing-lg) var(--spacing-lg);
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.input-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.input-icon {
+  width: 16px;
+  height: 16px;
+  color: hsl(var(--primary));
+  flex-shrink: 0;
+}
+
+.label-text {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.input-wrapper {
+  position: relative;
+}
+
+.gps-input {
+  height: 40px;
+  padding-right: 44px;
+  background: hsl(var(--background));
+  border-color: hsl(var(--input));
+  color: hsl(var(--foreground));
+  font-size: var(--font-size-sm);
+}
+
+.gps-input::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--font-size-sm);
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.input-error {
+  border-color: hsl(var(--destructive));
+}
+
+.input-error:focus-visible {
+  ring-color: hsl(var(--destructive));
+}
+
+.error-msg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: hsl(var(--destructive));
+}
+
+.error-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: hsl(var(--destructive));
+  flex-shrink: 0;
+}
+
+/* 提示信息样式 */
+.info-box {
+  border-radius: var(--radius-md);
+  background: hsl(var(--muted) / 0.6);
+  border: 1px solid hsl(var(--border));
+  padding: var(--spacing-md);
+}
+
+.info-content {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.info-icon {
+  width: 16px;
+  height: 16px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-title {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.info-desc {
+  font-size: var(--font-size-xs);
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+.info-link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.info-link:hover {
+  color: hsl(var(--primary) / 0.8);
+}
+
+/* 底部按钮样式 */
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.3);
+  gap: var(--spacing-sm);
+}
+
+.dialog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-width: 88px;
+}
+
+.dialog-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dialog-btn--secondary {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+}
+
+.dialog-btn--secondary:hover:not(:disabled) {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.dialog-btn--primary {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  min-width: 120px;
+}
+
+.dialog-btn--primary:hover:not(:disabled) {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.dialog-btn--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+</style>
