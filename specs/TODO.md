@@ -36,6 +36,8 @@
 - [x] 切换排序的toggle是透明的，影响观看。加入悬浮特效。
 - [x] gps添加面板(src/components/common/GPSDialog.vue)展示有问题，背景是透明的
 - [x] 控件的padding需要优化，很多控件过于紧凑
+- [ ] 用Field https://www.shadcn-vue.com/docs/components/field 优化gps对话框
+- [ ] 选择文件夹按钮以及排序select过于紧凑的问题
 
 # 图像加载速度优化
 
