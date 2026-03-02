@@ -35,8 +35,8 @@ function handleOpenChange(open: boolean) {
       :show-close-button="false"
       class="confirm-dialog"
       :class="cn(
-        'bg-[hsl(var(--card))] border-[hsl(var(--border))]',
-        'dark:bg-[hsl(var(--card))] dark:border-[hsl(var(--border))]'
+        'bg-[var(--card)] border-[var(--border)]',
+        'dark:bg-[var(--card)] dark:border-[var(--border)]'
       )"
     >
       <!-- Header -->
@@ -82,7 +82,7 @@ function handleOpenChange(open: boolean) {
   max-width: 440px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
 }
 
@@ -111,12 +111,12 @@ function handleOpenChange(open: boolean) {
 }
 
 .header-icon {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .header-icon--destructive {
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
+  background: var(--destructive);
+  color: var(--destructive-foreground);
 }
 
 .header-text {
@@ -128,13 +128,13 @@ function handleOpenChange(open: boolean) {
 .dialog-title {
   font-size: var(--font-size-lg);
   font-weight: 600;
-  color: hsl(var(--card-foreground));
+  color: var(--card-foreground);
   letter-spacing: -0.01em;
 }
 
 .dialog-desc {
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   line-height: 1.6;
   margin-left: calc(40px + var(--spacing-md));
 }
@@ -164,23 +164,23 @@ function handleOpenChange(open: boolean) {
 }
 
 .dialog-btn--secondary {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
 }
 
 .dialog-btn--secondary:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .dialog-btn--destructive {
-  color: hsl(var(--destructive-foreground));
-  background: hsl(var(--destructive));
+  color: var(--destructive-foreground);
+  background: var(--destructive);
   min-width: 120px;
 }
 
 .dialog-btn--destructive:hover {
-  background: hsl(var(--destructive) / 0.9);
+  background: color-mix(in srgb, var(--destructive) 90%, transparent);
 }
 </style>

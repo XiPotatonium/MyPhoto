@@ -52,13 +52,13 @@ const sortOptions = [
         </SelectContent>
       </Select>
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
         :title="sortOrder === 'asc' ? '升序' : '降序'"
         @click="emit('update:sortOrder', sortOrder === 'asc' ? 'desc' : 'asc')"
       >
-        <ArrowUp v-if="sortOrder === 'asc'" class="h-4 w-4 text-foreground" />
-        <ArrowDown v-else class="h-4 w-4 text-foreground" />
+        <ArrowUp v-if="sortOrder === 'asc'" class="h-4 w-4" />
+        <ArrowDown v-else class="h-4 w-4" />
       </Button>
     </div>
 
@@ -66,12 +66,11 @@ const sortOptions = [
       <Button
         variant="ghost"
         size="icon"
-        class="h-8 w-8"
         :title="resolvedTheme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
         @click="toggleTheme"
       >
-        <Sun v-if="resolvedTheme === 'light'" class="h-4 w-4 text-foreground" />
-        <Moon v-else class="h-4 w-4 text-foreground" />
+        <Sun v-if="resolvedTheme === 'light'" class="h-4 w-4" />
+        <Moon v-else class="h-4 w-4" />
       </Button>
     </div>
   </div>
@@ -84,8 +83,8 @@ const sortOptions = [
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--spacing-lg);
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
   flex-shrink: 0;
 }
 
@@ -97,7 +96,7 @@ const sortOptions = [
 
 .filter-label {
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-weight: 500;
 }
 

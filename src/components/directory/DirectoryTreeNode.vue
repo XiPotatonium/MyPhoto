@@ -79,16 +79,16 @@ function onClick() {
 }
 
 .tree-node:hover {
-  background: hsl(var(--accent));
+  background: var(--accent);
 }
 
 .tree-node.selected {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .tree-node.selected .tree-icon {
-  color: hsl(var(--primary-foreground));
+  color: var(--primary-foreground);
 }
 
 .tree-label {

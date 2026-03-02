@@ -190,7 +190,7 @@ defineExpose({ setRating })
 
 .info-card,
 .rating-card {
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
 }
 
 .card-header {
@@ -213,7 +213,7 @@ defineExpose({ setRating })
   justify-content: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl) 0;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .loading-state {
@@ -222,7 +222,7 @@ defineExpose({ setRating })
   justify-content: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xl) 0;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: var(--font-size-sm);
 }
 
@@ -237,7 +237,7 @@ defineExpose({ setRating })
   align-items: center;
   gap: var(--spacing-xs);
   padding: var(--spacing-xs) 0;
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  border-bottom: 1px solid var(--border);
 }
 
 .exif-item:last-child {
@@ -245,20 +245,20 @@ defineExpose({ setRating })
 }
 
 .exif-icon {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   flex-shrink: 0;
 }
 
 .exif-label {
   font-size: var(--font-size-xs);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   flex-shrink: 0;
   min-width: 60px;
 }
 
 .exif-value {
   font-size: var(--font-size-xs);
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   text-align: right;
   flex: 1;
   word-break: break-all;
@@ -290,13 +290,13 @@ defineExpose({ setRating })
 }
 
 .star-btn:hover {
-  background: hsl(var(--accent));
+  background: var(--accent);
   transform: scale(1.1);
 }
 
 .rating-label {
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-weight: 500;
 }
 </style>

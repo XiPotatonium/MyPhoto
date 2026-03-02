@@ -446,19 +446,19 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
 
 .empty-icon {
   margin-bottom: var(--spacing-md);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .empty-title {
   font-size: var(--font-size-lg);
   font-weight: 600;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   margin-bottom: var(--spacing-xs);
 }
 
 .empty-desc {
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .browser-loading {
@@ -468,7 +468,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   justify-content: center;
   gap: var(--spacing-md);
   height: 100%;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: var(--font-size-sm);
 }
 

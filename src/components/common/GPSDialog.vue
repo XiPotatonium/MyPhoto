@@ -70,8 +70,8 @@ defineExpose({ loading, reset })
       :show-close-button="false"
       class="sm:max-w-[440px] p-0 overflow-hidden border shadow-xl"
       :class="cn(
-        'bg-[hsl(var(--card))] border-[hsl(var(--border))]',
-        'dark:bg-[hsl(var(--card))] dark:border-[hsl(var(--border))]'
+        'bg-[var(--card)] border-[var(--border)]',
+        'dark:bg-[var(--card)] dark:border-[var(--border)]'
       )"
     >
       <!-- Header -->
@@ -218,8 +218,8 @@ defineExpose({ loading, reset })
   width: 40px;
   height: 40px;
   border-radius: var(--radius-md);
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
   flex-shrink: 0;
 }
 
@@ -232,13 +232,13 @@ defineExpose({ loading, reset })
 .dialog-title {
   font-size: var(--font-size-lg);
   font-weight: 600;
-  color: hsl(var(--card-foreground));
+  color: var(--card-foreground);
   letter-spacing: -0.01em;
 }
 
 .dialog-desc {
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 /* 表单内容样式 */
@@ -264,14 +264,14 @@ defineExpose({ loading, reset })
 .input-icon {
   width: 16px;
   height: 16px;
-  color: hsl(var(--primary));
+  color: var(--primary);
   flex-shrink: 0;
 }
 
 .label-text {
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .input-wrapper {
@@ -281,14 +281,14 @@ defineExpose({ loading, reset })
 .gps-input {
   height: 40px;
   padding-right: 44px;
-  background: hsl(var(--background));
-  border-color: hsl(var(--input));
-  color: hsl(var(--foreground));
+  background: var(--background);
+  border-color: var(--input);
+  color: var(--foreground);
   font-size: var(--font-size-sm);
 }
 
 .gps-input::placeholder {
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
 }
 
 .input-suffix {
@@ -297,17 +297,17 @@ defineExpose({ loading, reset })
   top: 50%;
   transform: translateY(-50%);
   font-size: var(--font-size-sm);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-weight: 500;
   pointer-events: none;
 }
 
 .input-error {
-  border-color: hsl(var(--destructive));
+  border-color: var(--destructive);
 }
 
 .input-error:focus-visible {
-  ring-color: hsl(var(--destructive));
+  ring-color: var(--destructive);
 }
 
 .error-msg {
@@ -315,22 +315,22 @@ defineExpose({ loading, reset })
   align-items: center;
   gap: 6px;
   font-size: var(--font-size-xs);
-  color: hsl(var(--destructive));
+  color: var(--destructive);
 }
 
 .error-dot {
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: hsl(var(--destructive));
+  background: var(--destructive);
   flex-shrink: 0;
 }
 
 /* 提示信息样式 */
 .info-box {
   border-radius: var(--radius-md);
-  background: hsl(var(--muted) / 0.6);
-  border: 1px solid hsl(var(--border));
+  background: var(--muted) / 0.6;
+  border: 1px solid var(--border);
   padding: var(--spacing-md);
 }
 
@@ -343,7 +343,7 @@ defineExpose({ loading, reset })
 .info-icon {
   width: 16px;
   height: 16px;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   margin-top: 2px;
   flex-shrink: 0;
 }
@@ -357,23 +357,23 @@ defineExpose({ loading, reset })
 .info-title {
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .info-desc {
   font-size: var(--font-size-xs);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   line-height: 1.5;
 }
 
 .info-link {
-  color: hsl(var(--primary));
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .info-link:hover {
-  color: hsl(var(--primary) / 0.8);
+  color: var(--primary) / 0.8;
 }
 
 /* 底部按钮样式 */
@@ -382,8 +382,8 @@ defineExpose({ loading, reset })
   justify-content: flex-end;
   align-items: center;
   padding: var(--spacing-md) var(--spacing-lg);
-  border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.3);
+  border-top: 1px solid var(--border);
+  background: var(--muted) / 0.3;
   gap: var(--spacing-sm);
 }
 
@@ -408,24 +408,24 @@ defineExpose({ loading, reset })
 }
 
 .dialog-btn--secondary {
-  color: hsl(var(--foreground));
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
 }
 
 .dialog-btn--secondary:hover:not(:disabled) {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .dialog-btn--primary {
-  color: hsl(var(--primary-foreground));
-  background: hsl(var(--primary));
+  color: var(--primary-foreground);
+  background: var(--primary);
   min-width: 120px;
 }
 
 .dialog-btn--primary:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.9);
+  background: var(--primary) / 0.9;
 }
 
 .dialog-btn--disabled {

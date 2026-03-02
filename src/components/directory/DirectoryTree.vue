@@ -139,7 +139,7 @@ watch(() => props.rootPath, (newPath) => {
   justify-content: center;
   gap: var(--spacing-sm);
   height: 100%;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: var(--font-size-sm);
 }
 </style>

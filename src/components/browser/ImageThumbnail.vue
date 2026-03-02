@@ -55,12 +55,12 @@ const emit = defineEmits<{
 }
 
 .image-thumbnail:hover {
-  background: hsl(var(--accent));
+  background: var(--accent);
 }
 
 .image-thumbnail.selected {
-  background: hsl(var(--accent));
-  border-color: hsl(var(--primary));
+  background: var(--accent);
+  border-color: var(--primary);
 }
 
 .thumb-container {
@@ -69,7 +69,7 @@ const emit = defineEmits<{
   height: var(--thumbnail-size);
   border-radius: calc(var(--radius) - 4px);
   overflow: hidden;
-  background: hsl(var(--muted));
+  background: var(--muted);
 }
 
 .thumb-img {
@@ -84,8 +84,8 @@ const emit = defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .file-badge {
@@ -95,8 +95,8 @@ const emit = defineEmits<{
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 10px;
   font-weight: 600;
   border-radius: 9px;
@@ -109,7 +109,7 @@ const emit = defineEmits<{
 .thumb-label {
   margin-top: var(--spacing-xs);
   font-size: var(--font-size-xs);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   text-align: center;
   width: var(--thumbnail-size);
   overflow: hidden;
@@ -119,7 +119,7 @@ const emit = defineEmits<{
 }
 
 .image-thumbnail.selected .thumb-label {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
   font-weight: 600;
 }
 </style>

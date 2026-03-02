@@ -35,23 +35,23 @@ const adjustedPosition = ref({ x: props.x, y: props.y })
 
 watch(() => [props.x, props.y, props.visible], () => {
   if (!props.visible) return
-  
+
   const menuWidth = 180
   const menuHeight = Math.min(props.items.length * 36 + 8, 300)
-  
+
   let newX = props.x
   let newY = props.y
-  
+
   // Keep within viewport horizontally
   if (newX + menuWidth > window.innerWidth) {
     newX = window.innerWidth - menuWidth - 8
   }
-  
+
   // Keep within viewport vertically
   if (newY + menuHeight > window.innerHeight) {
     newY = window.innerHeight - menuHeight - 8
   }
-  
+
   adjustedPosition.value = { x: Math.max(8, newX), y: Math.max(8, newY) }
 }, { immediate: true })
 
@@ -90,8 +90,8 @@ onUnmounted(() => {
 .context-menu {
   position: fixed;
   min-width: 160px;
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
+  background: var(--popover);
+  border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 2px);
   box-shadow: var(--shadow-lg);
   padding: var(--spacing-xs);
@@ -104,12 +104,12 @@ onUnmounted(() => {
   cursor: pointer;
   transition: all var(--transition-fast);
   border-radius: calc(var(--radius) - 4px);
-  color: hsl(var(--popover-foreground));
+  color: var(--popover-foreground);
 }
 
 .context-menu-item:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 /* Transition animations */

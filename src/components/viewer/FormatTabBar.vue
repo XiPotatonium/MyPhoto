@@ -44,14 +44,14 @@ const emit = defineEmits<{
   display: flex;
   justify-content: center;
   padding: var(--spacing-sm);
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: hsl(var(--background));
+  background: var(--background);
 }
 
 .format-tab-group {
   display: inline-flex;
-  background: hsl(var(--muted));
+  background: var(--muted);
   border-radius: var(--radius-md);
   padding: 3px;
   gap: 3px;
@@ -63,7 +63,7 @@ const emit = defineEmits<{
   padding: 0 20px;
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   background: transparent;
   border: none;
   border-radius: calc(var(--radius-md) - 2px);
@@ -75,17 +75,17 @@ const emit = defineEmits<{
 }
 
 .format-tab:hover {
-  color: hsl(var(--foreground));
+  color: var(--foreground);
 }
 
 .format-tab--active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
   box-shadow: var(--shadow-sm);
 }
 
 .format-tab--active:hover {
-  background: hsl(var(--primary) / 0.9);
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 </style>

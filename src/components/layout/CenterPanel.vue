@@ -13,7 +13,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: hsl(var(--background));
+  background: var(--background);
   overflow: hidden;
 }
 </style>

@@ -77,7 +77,7 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: hsl(var(--background));
+  background: var(--background);
 }
 
 .viewer-empty-state {
@@ -86,7 +86,7 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: var(--font-size-sm);
 }
 
@@ -96,7 +96,7 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  color: hsl(var(--muted-foreground));
+  color: var(--muted-foreground);
   font-size: var(--font-size-sm);
 }
 

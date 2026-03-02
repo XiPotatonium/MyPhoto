@@ -155,9 +155,9 @@ onUnmounted(() => {
       </div>
       <div class="right-panel-container">
         <RightPanel>
-          <ExifDisplay 
+          <ExifDisplay
             ref="exifDisplayRef"
-            :image="appState.state.currentImage" 
+            :image="appState.state.currentImage"
             @rating-updated="handleRatingUpdated"
           />
         </RightPanel>
@@ -194,7 +194,7 @@ onUnmounted(() => {
   min-width: 200px;
   max-width: 500px;
   flex-shrink: 0;
-  border-right: 1px solid hsl(var(--border));
+  border-right: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -209,7 +209,7 @@ onUnmounted(() => {
   min-width: 200px;
   max-width: 400px;
   flex-shrink: 0;
-  border-left: 1px solid hsl(var(--border));
+  border-left: 1px solid var(--border);
   overflow: hidden;
 }
 </style>

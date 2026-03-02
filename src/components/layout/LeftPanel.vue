@@ -23,7 +23,7 @@ import SplitPane from '../common/SplitPane.vue'
 .left-panel {
   width: 100%;
   height: 100%;
-  background: hsl(var(--secondary));
+  background: var(--secondary);
 }
 
 .panel-section {

@@ -101,7 +101,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: hsl(var(--border) / 0.5);
+  background: var(--border);
   transition: background var(--transition-fast);
   z-index: 1;
 }
@@ -118,7 +118,7 @@ onUnmounted(() => {
 
 .split-pane-handle:hover,
 .dragging > .split-pane-handle {
-  background: hsl(var(--primary));
+  background: var(--primary);
 }
 
 .handle-bar {
@@ -128,13 +128,13 @@ onUnmounted(() => {
 .vertical .handle-bar {
   width: 32px;
   height: 2px;
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: var(--muted-foreground);
 }
 
 .horizontal .handle-bar {
   width: 2px;
   height: 32px;
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: var(--muted-foreground);
 }
 
 .split-pane-handle:hover .handle-bar,
