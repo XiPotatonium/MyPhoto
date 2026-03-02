@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import type { ImageGroup } from '../../types/image'
-import { Button } from '../ui/button'
-import { ButtonGroup } from '../ui/button-group'
 import { cn } from '../../lib/utils'
 
 defineProps<{
@@ -16,32 +14,28 @@ const emit = defineEmits<{
 
 <template>
   <div class="format-tab-bar">
-    <ButtonGroup>
-      <Button
+    <div class="format-tab-group">
+      <button
         v-if="image.jpgPath"
-        variant="ghost"
-        size="sm"
         :class="cn(
           'format-tab',
-          currentFormat === 'jpg' && 'active'
+          currentFormat === 'jpg' && 'format-tab--active'
         )"
         @click="emit('update:format', 'jpg')"
       >
         JPG
-      </Button>
-      <Button
+      </button>
+      <button
         v-if="image.rawPath"
-        variant="ghost"
-        size="sm"
         :class="cn(
           'format-tab',
-          currentFormat === 'raw' && 'active'
+          currentFormat === 'raw' && 'format-tab--active'
         )"
         @click="emit('update:format', 'raw')"
       >
         RAW
-      </Button>
-    </ButtonGroup>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -55,14 +49,43 @@ const emit = defineEmits<{
   background: hsl(var(--background));
 }
 
-.format-tab {
-  font-weight: 500;
-  transition: all var(--transition-fast);
+.format-tab-group {
+  display: inline-flex;
+  background: hsl(var(--muted));
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 3px;
 }
 
-.format-tab.active {
-  background: hsl(var(--background));
+.format-tab {
+  min-width: 72px;
+  height: 32px;
+  padding: 0 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.format-tab:hover {
   color: hsl(var(--foreground));
+}
+
+.format-tab--active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
   box-shadow: var(--shadow-sm);
+}
+
+.format-tab--active:hover {
+  background: hsl(var(--primary) / 0.9);
+  color: hsl(var(--primary-foreground));
 }
 </style>
