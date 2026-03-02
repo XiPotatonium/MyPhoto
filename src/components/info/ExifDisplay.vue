@@ -68,7 +68,7 @@ defineExpose({ setRating })
     <Card class="info-card">
       <CardHeader class="card-header">
         <CardTitle class="card-title flex items-center gap-2">
-          <Camera class="h-4 w-4" />
+          <Camera class="h-4 w-4 text-foreground" />
           图像信息
         </CardTitle>
       </CardHeader>
@@ -142,7 +142,7 @@ defineExpose({ setRating })
     <Card class="rating-card">
       <CardHeader class="card-header">
         <CardTitle class="card-title flex items-center gap-2">
-          <Star class="h-4 w-4" />
+          <Star class="h-4 w-4 text-foreground" />
           评级
         </CardTitle>
       </CardHeader>

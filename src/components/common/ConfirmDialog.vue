@@ -110,6 +110,10 @@ function handleOpenChange(open: boolean) {
   flex-shrink: 0;
 }
 
+.header-icon {
+  color: hsl(var(--foreground));
+}
+
 .header-icon--destructive {
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));

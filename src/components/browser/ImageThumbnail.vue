@@ -85,6 +85,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
 }
 
 .file-badge {

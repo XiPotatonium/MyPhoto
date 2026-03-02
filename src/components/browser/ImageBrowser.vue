@@ -26,7 +26,7 @@ function getRating(image: ImageGroup): number {
 /// 前端排序函数
 function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortOrder): ImageGroup[] {
   const sorted = [...images]
-  
+
   switch (sortField) {
     case 'name':
       sorted.sort((a, b) => {
@@ -51,11 +51,11 @@ function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortO
       })
       break
   }
-  
+
   if (sortOrder === 'desc') {
     sorted.reverse()
   }
-  
+
   return sorted
 }
 
@@ -99,15 +99,15 @@ const itemsPerRow = computed(() => {
   const gap = 8 // 与 CSS 中 .thumbnail-row 的 gap 一致 (var(--spacing-sm))
   const padding = 8 // 与 CSS 中 .thumbnail-row 的 padding 一致 (var(--spacing-sm))
   const availableWidth = containerWidth.value - padding * 2
-  
+
   // 调试输出
   console.log('Container width:', containerWidth.value, 'Available width:', availableWidth, 'Item width:', itemTotalWidth)
-  
+
   if (availableWidth <= 0 || containerWidth.value === 0) {
     console.log('Using default itemsPerRow: 4')
     return 4 // 默认值
   }
-  
+
   const result = Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
   console.log('Items per row:', result)
   return result
@@ -156,7 +156,7 @@ async function loadImages() {
 
 async function loadThumbnailsBatch() {
   if (images.value.length === 0) return
-  
+
   // 设置事件监听器
   const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
     const { base_name, thumbnail, error } = event.payload
@@ -166,12 +166,12 @@ async function loadThumbnailsBatch() {
       console.error(`Failed to generate thumbnail for ${base_name}:`, error)
     }
   })
-  
+
   // 收集所有文件路径
   const filePaths = images.value
     .map(img => img.jpgPath || img.rawPath)
     .filter(path => path !== null) as string[]
-  
+
   try {
     // 调用批量生成命令
     await invoke('generate_thumbnails_batch', { filePaths })
@@ -204,12 +204,12 @@ function onContextMenu(e: MouseEvent) {
     { label: '刷新文件夹', action: loadImages },
     { label: '删除', action: requestDelete },
   ]
-  
+
   // 只有在有选中图片时才显示添加GPS信息选项
   if (selectedIndices.value.size > 0) {
     menuItems.push({ label: '添加GPS信息', action: openGPSDialog })
   }
-  
+
   showMenu(e, menuItems)
 }
 
@@ -232,15 +232,15 @@ function closeGPSDialog() {
 
 async function handleGPSConfirm(latitude: number, longitude: number) {
   if (!gpsDialogRef.value) return
-  
+
   // 设置加载状态
   gpsDialogRef.value.loading = true
-  
+
   try {
     // 获取选中图片的路径，同时收集JPG和RAW路径
     const selectedImages = Array.from(selectedIndices.value).map(index => images.value[index])
     const filePaths: string[] = []
-    
+
     selectedImages.forEach(img => {
       if (img.jpgPath) {
         filePaths.push(img.jpgPath)
@@ -249,21 +249,21 @@ async function handleGPSConfirm(latitude: number, longitude: number) {
         filePaths.push(img.rawPath)
       }
     })
-    
+
     if (filePaths.length === 0) {
       console.error('No valid file paths found')
       return
     }
-    
+
     // 调用批量写入GPS信息命令
     await invoke('batch_write_gps', {
       paths: filePaths,
       latitude,
       longitude,
     })
-    
+
     console.log(`Successfully added GPS info to ${filePaths.length} file(s)`)
-    
+
     // 关闭对话框
     closeGPSDialog()
   } catch (e) {
@@ -316,10 +316,10 @@ onUnmounted(() => {
 // 更新当前选中图片的评分
 function updateImageRating(rating: number) {
   if (selectedIndex.value < 0 || selectedIndex.value >= images.value.length) return
-  
+
   const image = images.value[selectedIndex.value]
   if (!image) return
-  
+
   // 找到原始图片数据并更新
   const rawIndex = rawImages.value.findIndex(img => img.baseName === image.baseName)
   if (rawIndex >= 0 && rawImages.value[rawIndex].exifInfo) {
@@ -330,12 +330,12 @@ function updateImageRating(rating: number) {
 // 前端直接移除图片
 function removeImages(paths: string[]) {
   const pathSet = new Set(paths)
-  
+
   // 过滤掉被删除的图片
   const newRawImages = rawImages.value.filter(img => {
     const jpgDeleted = img.jpgPath && pathSet.has(img.jpgPath)
     const rawDeleted = img.rawPath && pathSet.has(img.rawPath)
-    
+
     // 如果只删除了其中一个格式，更新图片组而不是移除
     if (jpgDeleted && !rawDeleted && img.rawPath) {
       img.jpgPath = null
@@ -347,17 +347,17 @@ function removeImages(paths: string[]) {
       img.fileCount -= 1
       return true
     }
-    
+
     // 如果两个都被删除，或者只有一个格式且被删除，则移除
     return !(jpgDeleted || rawDeleted)
   })
-  
+
   rawImages.value = newRawImages
-  
+
   // 清除选中状态
   selectedIndices.value.clear()
   selectedIndex.value = -1
-  
+
   // 清除缩略图缓存
   paths.forEach(path => {
     const baseName = path.split('/').pop()?.split('.').shift()
@@ -446,6 +446,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
 
 .empty-icon {
   margin-bottom: var(--spacing-md);
+  color: hsl(var(--muted-foreground));
 }
 
 .empty-title {

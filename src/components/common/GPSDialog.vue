@@ -9,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
-import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { cn } from '../../lib/utils'
@@ -79,7 +78,7 @@ defineExpose({ loading, reset })
       <DialogHeader class="dialog-header">
         <div class="header-content">
           <div class="header-icon">
-            <MapPin class="h-5 w-5" />
+            <MapPin class="h-5 w-5 text-primary-foreground" />
           </div>
           <div class="header-text">
             <DialogTitle class="dialog-title">
@@ -97,7 +96,7 @@ defineExpose({ loading, reset })
         <!-- 纬度输入 -->
         <div class="input-group">
           <div class="input-label">
-            <Compass class="input-icon" />
+            <Compass class="input-icon text-primary" />
             <Label for="latitude" class="label-text">
               纬度 Latitude
             </Label>
@@ -127,7 +126,7 @@ defineExpose({ loading, reset })
         <!-- 经度输入 -->
         <div class="input-group">
           <div class="input-label">
-            <Navigation class="input-icon" />
+            <Navigation class="input-icon text-primary" />
             <Label for="longitude" class="label-text">
               经度 Longitude
             </Label>
@@ -157,7 +156,7 @@ defineExpose({ loading, reset })
         <!-- 提示信息 -->
         <div class="info-box">
           <div class="info-content">
-            <Globe class="info-icon" />
+            <Globe class="info-icon text-muted-foreground" />
             <div class="info-text">
               <p class="info-title">查找坐标</p>
               <p class="info-desc">

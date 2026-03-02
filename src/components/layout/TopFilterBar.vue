@@ -52,14 +52,13 @@ const sortOptions = [
         </SelectContent>
       </Select>
       <Button
-        variant="secondary"
+        variant="outline"
         size="icon"
-        class="h-8 w-8"
         :title="sortOrder === 'asc' ? '升序' : '降序'"
         @click="emit('update:sortOrder', sortOrder === 'asc' ? 'desc' : 'asc')"
       >
-        <ArrowUp v-if="sortOrder === 'asc'" class="h-4 w-4" />
-        <ArrowDown v-else class="h-4 w-4" />
+        <ArrowUp v-if="sortOrder === 'asc'" class="h-4 w-4 text-foreground" />
+        <ArrowDown v-else class="h-4 w-4 text-foreground" />
       </Button>
     </div>
 
@@ -71,8 +70,8 @@ const sortOptions = [
         :title="resolvedTheme === 'light' ? '切换到深色模式' : '切换到浅色模式'"
         @click="toggleTheme"
       >
-        <Sun v-if="resolvedTheme === 'light'" class="h-4 w-4" />
-        <Moon v-else class="h-4 w-4" />
+        <Sun v-if="resolvedTheme === 'light'" class="h-4 w-4 text-foreground" />
+        <Moon v-else class="h-4 w-4 text-foreground" />
       </Button>
     </div>
   </div>
