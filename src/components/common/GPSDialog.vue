@@ -10,8 +10,12 @@ import {
   DialogTitle,
 } from '../ui/dialog'
 import { Input } from '../ui/input'
-import { Label } from '../ui/label'
-import { cn } from '../../lib/utils'
+import { Button } from '../ui/button'
+import {
+  Field,
+  FieldLabel,
+  FieldError,
+} from '../ui/field'
 
 defineProps<{
   visible: boolean
@@ -28,19 +32,20 @@ const loading = ref(false)
 
 // 验证经纬度格式
 const isValidLatitude = computed(() => {
-  if (latitude.value === '') return false
+  if (latitude.value === '') return true
   const lat = parseFloat(latitude.value)
   return !isNaN(lat) && lat >= -90 && lat <= 90
 })
 
 const isValidLongitude = computed(() => {
-  if (longitude.value === '') return false
+  if (longitude.value === '') return true
   const lon = parseFloat(longitude.value)
   return !isNaN(lon) && lon >= -180 && lon <= 180
 })
 
 const canConfirm = computed(() => {
-  return isValidLatitude.value && isValidLongitude.value && !loading.value
+  return latitude.value !== '' && longitude.value !== ''
+    && isValidLatitude.value && isValidLongitude.value && !loading.value
 })
 
 function handleConfirm() {
@@ -68,104 +73,82 @@ defineExpose({ loading, reset })
   <Dialog :open="visible" @update:open="(open) => !open && handleCancel()">
     <DialogContent
       :show-close-button="false"
-      class="sm:max-w-[440px] p-0 overflow-hidden border shadow-xl"
-      :class="cn(
-        'bg-[var(--card)] border-[var(--border)]',
-        'dark:bg-[var(--card)] dark:border-[var(--border)]'
-      )"
+      class="sm:max-w-[440px] p-0 overflow-hidden"
     >
       <!-- Header -->
-      <DialogHeader class="dialog-header">
-        <div class="header-content">
-          <div class="header-icon">
-            <MapPin class="h-5 w-5 text-primary-foreground" />
+      <DialogHeader class="px-6 pt-6 pb-4">
+        <div class="flex items-center gap-3">
+          <div class="flex items-center justify-center w-10 h-10 rounded-md bg-primary text-primary-foreground shrink-0">
+            <MapPin class="h-5 w-5" />
           </div>
-          <div class="header-text">
-            <DialogTitle class="dialog-title">
-              添加 GPS 信息
-            </DialogTitle>
-            <DialogDescription class="dialog-desc">
-              为选中的图像添加地理位置坐标
-            </DialogDescription>
+          <div class="flex flex-col gap-0.5">
+            <DialogTitle>添加 GPS 信息</DialogTitle>
+            <DialogDescription>为选中的图像添加地理位置坐标</DialogDescription>
           </div>
         </div>
       </DialogHeader>
 
       <!-- 表单内容 -->
-      <div class="form-content">
+      <div class="flex flex-col gap-5 px-6 pb-6">
         <!-- 纬度输入 -->
-        <div class="input-group">
-          <div class="input-label">
-            <Compass class="input-icon text-primary" />
-            <Label for="latitude" class="label-text">
-              纬度 Latitude
-            </Label>
-          </div>
-          <div class="input-wrapper">
+        <Field :data-invalid="latitude !== '' && !isValidLatitude ? true : undefined">
+          <FieldLabel class="flex items-center gap-1.5">
+            <Compass class="h-4 w-4 text-primary" />
+            纬度 Latitude
+          </FieldLabel>
+          <div class="relative">
             <Input
               id="latitude"
               v-model="latitude"
               type="text"
               placeholder="例如: 39.9042"
               :disabled="loading"
-              class="gps-input"
-              :class="cn(
-                latitude !== '' && !isValidLatitude && 'input-error'
-              )"
+              class="pr-11"
+              :class="latitude !== '' && !isValidLatitude ? 'border-destructive focus-visible:ring-destructive' : ''"
             />
-            <div class="input-suffix">
-              °N
-            </div>
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium pointer-events-none">°N</span>
           </div>
-          <p v-if="latitude !== '' && !isValidLatitude" class="error-msg">
-            <span class="error-dot" />
+          <FieldError v-if="latitude !== '' && !isValidLatitude">
             纬度必须在 -90 到 90 之间
-          </p>
-        </div>
+          </FieldError>
+        </Field>
 
         <!-- 经度输入 -->
-        <div class="input-group">
-          <div class="input-label">
-            <Navigation class="input-icon text-primary" />
-            <Label for="longitude" class="label-text">
-              经度 Longitude
-            </Label>
-          </div>
-          <div class="input-wrapper">
+        <Field :data-invalid="longitude !== '' && !isValidLongitude ? true : undefined">
+          <FieldLabel class="flex items-center gap-1.5">
+            <Navigation class="h-4 w-4 text-primary" />
+            经度 Longitude
+          </FieldLabel>
+          <div class="relative">
             <Input
               id="longitude"
               v-model="longitude"
               type="text"
               placeholder="例如: 116.4074"
               :disabled="loading"
-              class="gps-input"
-              :class="cn(
-                longitude !== '' && !isValidLongitude && 'input-error'
-              )"
+              class="pr-11"
+              :class="longitude !== '' && !isValidLongitude ? 'border-destructive focus-visible:ring-destructive' : ''"
             />
-            <div class="input-suffix">
-              °E
-            </div>
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium pointer-events-none">°E</span>
           </div>
-          <p v-if="longitude !== '' && !isValidLongitude" class="error-msg">
-            <span class="error-dot" />
+          <FieldError v-if="longitude !== '' && !isValidLongitude">
             经度必须在 -180 到 180 之间
-          </p>
-        </div>
+          </FieldError>
+        </Field>
 
         <!-- 提示信息 -->
-        <div class="info-box">
-          <div class="info-content">
-            <Globe class="info-icon text-muted-foreground" />
-            <div class="info-text">
-              <p class="info-title">查找坐标</p>
-              <p class="info-desc">
+        <div class="rounded-md bg-muted/60 border border-border p-4">
+          <div class="flex items-start gap-2">
+            <Globe class="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+            <div class="flex flex-col gap-1">
+              <p class="text-sm font-medium">查找坐标</p>
+              <p class="text-xs text-muted-foreground leading-relaxed">
                 访问
                 <a
                   href="https://jingweidu.bmcx.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="info-link"
+                  class="text-primary underline underline-offset-2 hover:opacity-80"
                 >
                   经纬度查询网站
                 </a>
@@ -177,259 +160,23 @@ defineExpose({ loading, reset })
       </div>
 
       <!-- 底部按钮 -->
-      <DialogFooter class="dialog-footer">
-        <button
+      <DialogFooter class="px-6 py-4 border-t border-border bg-muted/30">
+        <Button
+          variant="outline"
           :disabled="loading"
           @click="handleCancel"
-          class="dialog-btn dialog-btn--secondary"
         >
           取消
-        </button>
-        <button
+        </Button>
+        <Button
           :disabled="!canConfirm"
           @click="handleConfirm"
-          :class="cn('dialog-btn dialog-btn--primary', !canConfirm && 'dialog-btn--disabled')"
         >
           <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin" />
           <MapPin v-else class="mr-2 h-4 w-4" />
-          <span>{{ loading ? '保存中...' : '确认添加' }}</span>
-        </button>
+          {{ loading ? '保存中...' : '确认添加' }}
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
 </template>
-
-<style scoped>
-/* Header 样式 */
-.dialog-header {
-  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
-}
-
-.header-content {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-}
-
-.header-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  background: var(--primary);
-  color: var(--primary-foreground);
-  flex-shrink: 0;
-}
-
-.header-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dialog-title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--card-foreground);
-  letter-spacing: -0.01em;
-}
-
-.dialog-desc {
-  font-size: var(--font-size-sm);
-  color: var(--muted-foreground);
-}
-
-/* 表单内容样式 */
-.form-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-  padding: 0 var(--spacing-lg) var(--spacing-lg);
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.input-label {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.input-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--primary);
-  flex-shrink: 0;
-}
-
-.label-text {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--foreground);
-}
-
-.input-wrapper {
-  position: relative;
-}
-
-.gps-input {
-  height: 40px;
-  padding-right: 44px;
-  background: var(--background);
-  border-color: var(--input);
-  color: var(--foreground);
-  font-size: var(--font-size-sm);
-}
-
-.gps-input::placeholder {
-  color: var(--muted-foreground);
-}
-
-.input-suffix {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: var(--font-size-sm);
-  color: var(--muted-foreground);
-  font-weight: 500;
-  pointer-events: none;
-}
-
-.input-error {
-  border-color: var(--destructive);
-}
-
-.input-error:focus-visible {
-  ring-color: var(--destructive);
-}
-
-.error-msg {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-xs);
-  color: var(--destructive);
-}
-
-.error-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--destructive);
-  flex-shrink: 0;
-}
-
-/* 提示信息样式 */
-.info-box {
-  border-radius: var(--radius-md);
-  background: var(--muted) / 0.6;
-  border: 1px solid var(--border);
-  padding: var(--spacing-md);
-}
-
-.info-content {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-sm);
-}
-
-.info-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--muted-foreground);
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.info-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-title {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--foreground);
-}
-
-.info-desc {
-  font-size: var(--font-size-xs);
-  color: var(--muted-foreground);
-  line-height: 1.5;
-}
-
-.info-link {
-  color: var(--primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.info-link:hover {
-  color: var(--primary) / 0.8;
-}
-
-/* 底部按钮样式 */
-.dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-top: 1px solid var(--border);
-  background: var(--muted) / 0.3;
-  gap: var(--spacing-sm);
-}
-
-.dialog-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 36px;
-  padding: 0 20px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  min-width: 88px;
-}
-
-.dialog-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.dialog-btn--secondary {
-  color: var(--foreground);
-  background: var(--background);
-  border: 1px solid var(--border);
-}
-
-.dialog-btn--secondary:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-foreground);
-}
-
-.dialog-btn--primary {
-  color: var(--primary-foreground);
-  background: var(--primary);
-  min-width: 120px;
-}
-
-.dialog-btn--primary:hover:not(:disabled) {
-  background: var(--primary) / 0.9;
-}
-
-.dialog-btn--disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-</style>
