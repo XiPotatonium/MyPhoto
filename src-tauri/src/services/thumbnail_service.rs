@@ -9,7 +9,34 @@ use crate::services::image_cache::get_cache;
 
 const THUMBNAIL_SIZE: u32 = 260;
 
-/// 加载图片（用于缓存回调，处理 EXIF 方向）
+/// 从 JPEG 字节数据加载图片（处理 EXIF 方向）
+/// 可被多种格式的解码路径复用（如 JPG/JPEG/PNG 直接读取，RAF 提取内嵌 JPEG 后调用此函数）
+fn decode_jpeg_bytes(jpeg_bytes: &[u8]) -> Result<DynamicImage, crate::error::AppError> {
+    let cursor = Cursor::new(jpeg_bytes);
+    let reader = ImageReader::new(cursor).with_guessed_format()?;
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut img = DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    Ok(img)
+}
+
+/// 从标准图片文件（JPG/PNG 等）加载
+fn load_standard_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> {
+    let bytes = std::fs::read(file_path)?;
+    decode_jpeg_bytes(&bytes)
+}
+
+/// 从 RAF 文件加载：提取内嵌 JPEG 后解码
+fn load_raf_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> {
+    use crate::services::raw_decoders::raf_decoder::RafDecoder;
+    let decoder = RafDecoder::new(file_path)
+        .map_err(|e| crate::error::AppError::General(format!("Failed to decode RAF: {}", e)))?;
+    decode_jpeg_bytes(&decoder.jpeg.data)
+}
+
+/// 加载图片（用于缓存回调）
+/// 根据文件扩展名分发到对应的格式解码器，便于未来扩展新格式
 fn load_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> {
     let ext = file_path
         .extension()
@@ -17,42 +44,14 @@ fn load_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> 
         .unwrap_or("")
         .to_lowercase();
 
-    let img = match ext.as_str() {
-        "jpg" | "jpeg" | "png" => {
-            // Use ImageReader to handle EXIF orientation
-            let reader = ImageReader::open(file_path)?;
-            let mut decoder = reader.into_decoder()?;
-            let orientation = decoder.orientation()?;
-            let mut img = DynamicImage::from_decoder(decoder)?;
-            img.apply_orientation(orientation);
-            img
-        }
-        "dng" => {
-            match extract_dng_preview(file_path) {
-                Ok(img) => img,
-                Err(_) => {
-                    // Return a simple gray placeholder for unsupported RAW
-                    DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE)
-                }
-            }
-        }
-        "raf" => {
-            match extract_raf_preview(file_path) {
-                Ok(img) => img,
-                Err(_) => {
-                    DynamicImage::new_rgb8(THUMBNAIL_SIZE, THUMBNAIL_SIZE)
-                }
-            }
-        }
-        _ => {
-            return Err(crate::error::AppError::General(format!(
-                "Unsupported format: {}",
-                ext
-            )));
-        }
-    };
-
-    Ok(img)
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" => load_standard_image(file_path),
+        "raf" => load_raf_image(file_path),
+        _ => Err(crate::error::AppError::General(format!(
+            "Unsupported format: {}",
+            ext
+        ))),
+    }
 }
 
 pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
@@ -68,29 +67,6 @@ pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppE
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
     Ok(b64)
-}
-
-fn extract_dng_preview(file_path: &Path) -> Result<image::DynamicImage, crate::error::AppError> {
-    // Try to read the DNG file as a regular image (some DNG files have embedded JPEGs)
-    // The `image` crate can sometimes handle TIFF-based DNG files
-    image::open(file_path).map_err(|e| crate::error::AppError::Image(e))
-}
-
-fn extract_raf_preview(file_path: &Path) -> Result<image::DynamicImage, crate::error::AppError> {
-    // Use the RAF decoder to extract the embedded JPEG preview
-    use crate::services::raw_decoders::raf_decoder::RafDecoder;
-
-    let decoder = RafDecoder::new(file_path)
-        .map_err(|e| crate::error::AppError::General(format!("Failed to decode RAF: {}", e)))?;
-
-    // Load the JPEG data from the RAF file
-    let jpeg_data = &decoder.jpeg.data;
-
-    // Use image crate to load the JPEG data
-    let img = image::load_from_memory(jpeg_data)
-        .map_err(|e| crate::error::AppError::Image(e))?;
-
-    Ok(img)
 }
 
 pub fn read_full_image(file_path: &Path) -> Result<String, crate::error::AppError> {

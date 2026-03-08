@@ -5,7 +5,7 @@ use crate::models::image::ImageGroup;
 use crate::services::exif_service;
 
 const IMAGE_EXTENSIONS_JPG: &[&str] = &["jpg", "jpeg", "png"];
-const IMAGE_EXTENSIONS_RAW: &[&str] = &["dng", "raf"];
+const IMAGE_EXTENSIONS_RAW: &[&str] = &["raf"];
 
 fn is_image_file(ext: &str) -> bool {
     let lower = ext.to_lowercase();
