@@ -206,7 +206,7 @@ fn decimal_degrees_to_dms(decimal: f64) -> Vec<Rational> {
 /// - Preserves SOI (Start of Image) marker
 /// - Replaces existing APP1 EXIF segment or inserts new one after SOI
 /// - Preserves all other segments and image data
-pub(crate) fn write_jpeg_with_exif(
+pub(super) fn write_jpeg_with_exif(
     file_path: &Path,
     original_data: &[u8],
     exif_data: &[u8],

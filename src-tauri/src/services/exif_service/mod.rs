@@ -1,10 +1,11 @@
 mod read_exif_service;
+mod write_exif_service;
 mod write_gps_service;
 mod write_rating_service;
 
 use std::path::Path;
 
-use crate::models::exif::ExifInfo;
+use crate::models::exif::{ExifInfo, ExifWriteRequest};
 
 // ── read ──────────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,15 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
         Some("raf") => read_exif_service::read_exif_raf(file_path),
         _ => read_exif_service::read_exif_jpg(file_path),
     }
+}
+
+// ── write EXIF fields ─────────────────────────────────────────────────────────
+
+/// Write multiple EXIF fields to a JPEG file.
+///
+/// Only fields with `Some` value in `req` are written; the rest are preserved.
+pub fn write_exif_fields(file_path: &Path, req: &ExifWriteRequest) -> Result<(), crate::error::AppError> {
+    write_exif_service::write_exif_fields_jpg(file_path, req)
 }
 
 // ── write GPS ─────────────────────────────────────────────────────────────────

@@ -6,7 +6,8 @@ import { FolderOpen, Image, RefreshCw } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
-import GPSDialog from '../common/GPSDialog.vue'
+import ExifDialog from '../common/ExifDialog.vue'
+import type { ExifWriteRequest } from '../common/ExifDialog.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { RecycleScroller } from 'vue-virtual-scroller'
 
@@ -84,7 +85,7 @@ const thumbnails = ref<Map<string, string>>(new Map())
 const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
 const gpsDialogVisible = ref(false)
-const gpsDialogRef = ref<InstanceType<typeof GPSDialog> | null>(null)
+const exifDialogRef = ref<InstanceType<typeof ExifDialog> | null>(null)
 
 // 排序后的图片列表
 const images = computed(() => {
@@ -205,9 +206,9 @@ function onContextMenu(e: MouseEvent) {
     { label: '删除', action: requestDelete },
   ]
 
-  // 只有在有选中图片时才显示添加GPS信息选项
+  // 只有在有选中图片时才显示修改EXIF信息选项
   if (selectedIndices.value.size > 0) {
-    menuItems.push({ label: '添加GPS信息', action: openGPSDialog })
+    menuItems.push({ label: '修改EXIF信息', action: openExifDialog })
   }
 
   showMenu(e, menuItems)
@@ -218,23 +219,23 @@ function requestDelete() {
   emit('delete-requested')
 }
 
-function openGPSDialog() {
+function openExifDialog() {
   if (selectedIndices.value.size === 0) return
   gpsDialogVisible.value = true
 }
 
-function closeGPSDialog() {
+function closeExifDialog() {
   gpsDialogVisible.value = false
-  if (gpsDialogRef.value) {
-    gpsDialogRef.value.reset()
+  if (exifDialogRef.value) {
+    exifDialogRef.value.reset()
   }
 }
 
-async function handleGPSConfirm(latitude: number, longitude: number) {
-  if (!gpsDialogRef.value) return
+async function handleExifConfirm(fields: ExifWriteRequest) {
+  if (!exifDialogRef.value) return
 
   // 设置加载状态
-  gpsDialogRef.value.loading = true
+  exifDialogRef.value.loading = true
 
   try {
     // 获取选中图片的路径，同时收集JPG和RAW路径
@@ -255,23 +256,31 @@ async function handleGPSConfirm(latitude: number, longitude: number) {
       return
     }
 
-    // 调用批量写入GPS信息命令
-    await invoke('batch_write_gps', {
-      paths: filePaths,
-      latitude,
-      longitude,
-    })
+    // 对每个文件调用 write_exif_fields 命令
+    const errors: string[] = []
+    for (const filePath of filePaths) {
+      try {
+        await invoke('write_exif_fields', { filePath, fields })
+      } catch (e) {
+        errors.push(`${filePath}: ${e}`)
+      }
+    }
 
-    console.log(`Successfully added GPS info to ${filePaths.length} file(s)`)
+    if (errors.length > 0) {
+      console.error('Some files failed:', errors)
+      alert('部分文件保存失败:\n' + errors.join('\n'))
+    } else {
+      console.log(`Successfully updated EXIF for ${filePaths.length} file(s)`)
+    }
 
     // 关闭对话框
-    closeGPSDialog()
+    closeExifDialog()
   } catch (e) {
-    console.error('Failed to write GPS info:', e)
-    alert('保存GPS信息失败: ' + e)
+    console.error('Failed to write EXIF info:', e)
+    alert('保存EXIF信息失败: ' + e)
   } finally {
-    if (gpsDialogRef.value) {
-      gpsDialogRef.value.loading = false
+    if (exifDialogRef.value) {
+      exifDialogRef.value.loading = false
     }
   }
 }
@@ -417,11 +426,11 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       :items="menuState.items"
       @close="hideMenu"
     />
-    <GPSDialog
-      ref="gpsDialogRef"
+    <ExifDialog
+      ref="exifDialogRef"
       :visible="gpsDialogVisible"
-      @confirm="handleGPSConfirm"
-      @cancel="closeGPSDialog"
+      @confirm="handleExifConfirm"
+      @cancel="closeExifDialog"
     />
   </div>
 </template>

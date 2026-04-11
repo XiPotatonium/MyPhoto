@@ -52,3 +52,7 @@ https://www.reddit.com/r/rust/comments/k1wjix/why_opening_of_images_is_so_slow/
 ## 前端展示缓慢
 
 即使缓存命中，前端似乎也需要几秒钟来渲染，导致看起来非常慢
+
+# exif改造
+
+准备后续迁移到exif-oxide

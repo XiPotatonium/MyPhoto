@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::models::exif::ExifInfo;
+use crate::models::exif::{ExifInfo, ExifWriteRequest};
 use crate::services::exif_service;
 
 #[tauri::command]
@@ -40,6 +40,29 @@ pub fn write_rating(file_path: String, rating: u8) -> Result<(), AppError> {
             "Writing rating to RAF files is not yet implemented".to_string(),
         )),
         _ => exif_service::write_rating(path, rating),
+    }
+}
+
+#[tauri::command]
+pub fn write_exif_fields(file_path: String, fields: ExifWriteRequest) -> Result<(), AppError> {
+    let path = Path::new(&file_path);
+    if !path.is_file() {
+        return Err(AppError::General(format!(
+            "File not found: {}",
+            file_path
+        )));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
+
+    match ext.as_deref() {
+        Some("raf") => Err(AppError::General(
+            "Writing EXIF fields to RAF files is not yet implemented".to_string(),
+        )),
+        _ => exif_service::write_exif_fields(path, &fields),
     }
 }
 

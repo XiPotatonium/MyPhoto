@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
+.qoder/
+
 # test_data/*
 src-tauri/test_data/*

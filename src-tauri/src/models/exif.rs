@@ -1,5 +1,21 @@
 use serde::{Deserialize, Serialize};
 
+/// Request payload for writing EXIF fields to an image file.
+/// All fields are optional; only non-None fields will be written.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExifWriteRequest {
+    pub datetime: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens_model: Option<String>,
+    pub focal_length: Option<f32>,
+    pub shutter_speed: Option<String>,
+    pub aperture: Option<f32>,
+    pub iso: Option<u32>,
+    pub gps_latitude: Option<f64>,
+    pub gps_longitude: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
