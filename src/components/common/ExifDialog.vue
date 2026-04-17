@@ -310,8 +310,14 @@ defineExpose({ loading, reset, initWithExif })
         </Field>
 
         <!-- 分隔线 -->
-        <div class="col-span-2 border-t border-border pt-1">
+        <div class="col-span-2 border-t border-border pt-1 flex items-center justify-between">
           <p class="text-xs text-muted-foreground font-medium">GPS 坐标（可选）</p>
+          <a
+            href="https://www.bchrt.com/tools/latitude-longitude-query/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-xs text-blue-500 hover:text-blue-600 hover:underline"
+          >从这里查找 GPS 坐标</a>
         </div>
 
         <!-- 纬度 -->

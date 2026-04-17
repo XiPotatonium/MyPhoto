@@ -86,6 +86,27 @@ const rawImages = ref<ImageGroup[]>([])
 const loading = ref(false)
 const selectedIndex = ref(-1)
 const selectedIndices = ref<Set<number>>(new Set())
+const lastAnchorIndex = ref(-1)
+
+// 拖拽框选状态
+interface DragRect {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+}
+const isDragging = ref(false)
+const dragRect = ref<DragRect | null>(null)
+const dragSelectionRect = computed(() => {
+  if (!dragRect.value) return null
+  const { startX, startY, currentX, currentY } = dragRect.value
+  return {
+    left: Math.min(startX, currentX),
+    top: Math.min(startY, currentY),
+    width: Math.abs(currentX - startX),
+    height: Math.abs(currentY - startY),
+  }
+})
 const thumbnails = ref<Map<string, string>>(new Map())
 const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
@@ -189,15 +210,32 @@ async function loadThumbnailsBatch() {
 }
 
 function onImageClick(index: number, e: MouseEvent) {
+  const isCtrl = e.ctrlKey || e.metaKey
+
   if (e.shiftKey && selectedIndex.value >= 0) {
-    const start = Math.min(selectedIndex.value, index)
-    const end = Math.max(selectedIndex.value, index)
-    selectedIndices.value.clear()
+    // Shift 连续选择：从锚点到当前，保留已有选择（若同时按 Ctrl）
+    const anchor = lastAnchorIndex.value >= 0 ? lastAnchorIndex.value : selectedIndex.value
+    const start = Math.min(anchor, index)
+    const end = Math.max(anchor, index)
+    if (!isCtrl) {
+      selectedIndices.value.clear()
+    }
     for (let i = start; i <= end; i++) {
       selectedIndices.value.add(i)
     }
-  } else {
+  } else if (isCtrl) {
+    // Ctrl/Cmd 点选：切换单个选中状态
+    if (selectedIndices.value.has(index)) {
+      selectedIndices.value.delete(index)
+    } else {
+      selectedIndices.value.add(index)
+    }
+    lastAnchorIndex.value = index
     selectedIndex.value = index
+  } else {
+    // 普通点击：单选
+    selectedIndex.value = index
+    lastAnchorIndex.value = index
     selectedIndices.value.clear()
     selectedIndices.value.add(index)
   }
@@ -326,6 +364,123 @@ watch(() => props.mode, (newMode) => {
 const browserEl = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
+// 拖拽框选：鼠标按下
+function onMouseDown(e: MouseEvent) {
+  // 仅处理 grid 模式下的左键拖拽；排除点击在缩略图上的情况
+  if (props.mode !== 'grid') return
+  if (e.button !== 0) return
+  const target = e.target as HTMLElement
+  // 如果点击的是缩略图本身，交由 onImageClick 处理
+  if (target.closest('.image-thumbnail')) return
+
+  const container = browserEl.value
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top + (gridScrollerRef.value?.$el?.scrollTop ?? 0)
+
+  isDragging.value = false
+  dragRect.value = { startX: x, startY: y, currentX: x, currentY: y }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
+
+// 拖拽框选：鼠标移动
+function onMouseMove(e: MouseEvent) {
+  if (!dragRect.value) return
+  const container = browserEl.value
+  if (!container) return
+  const rect = container.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top + (gridScrollerRef.value?.$el?.scrollTop ?? 0)
+  dragRect.value.currentX = x
+  dragRect.value.currentY = y
+
+  const dx = Math.abs(dragRect.value.currentX - dragRect.value.startX)
+  const dy = Math.abs(dragRect.value.currentY - dragRect.value.startY)
+  if (dx > 4 || dy > 4) {
+    isDragging.value = true
+  }
+
+  if (isDragging.value) {
+    updateDragSelection(e)
+  }
+}
+
+// 拖拽框选：计算与框重叠的图片
+function updateDragSelection(e: MouseEvent) {
+  if (!dragRect.value || !browserEl.value) return
+
+  const container = browserEl.value
+  const containerRect = container.getBoundingClientRect()
+  const scrollTop = gridScrollerRef.value?.$el?.scrollTop ?? 0
+
+  // 框选区域（相对于容器，考虑滚动）
+  const selLeft = Math.min(dragRect.value.startX, dragRect.value.currentX)
+  const selTop = Math.min(dragRect.value.startY, dragRect.value.currentY)
+  const selRight = Math.max(dragRect.value.startX, dragRect.value.currentX)
+  const selBottom = Math.max(dragRect.value.startY, dragRect.value.currentY)
+
+  const newSelected = new Set<number>()
+  const thumbnailEls = container.querySelectorAll<HTMLElement>('.image-thumbnail')
+
+  thumbnailEls.forEach((el) => {
+    const elRect = el.getBoundingClientRect()
+    const elLeft = elRect.left - containerRect.left
+    const elTop = elRect.top - containerRect.top + scrollTop
+    const elRight = elLeft + elRect.width
+    const elBottom = elTop + elRect.height
+
+    // 检测重叠
+    if (elRight > selLeft && elLeft < selRight && elBottom > selTop && elTop < selBottom) {
+      const indexAttr = el.dataset.index
+      if (indexAttr !== undefined) {
+        newSelected.add(parseInt(indexAttr))
+      }
+    }
+  })
+
+  // Ctrl 键保留已有选择
+  if (e.ctrlKey || e.metaKey) {
+    const combined = new Set(selectedIndices.value)
+    newSelected.forEach(i => combined.add(i))
+    selectedIndices.value = combined
+  } else {
+    selectedIndices.value = newSelected
+  }
+}
+
+// 拖拽框选：鼠标释放
+function onMouseUp(e: MouseEvent) {
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+
+  if (isDragging.value) {
+    updateDragSelection(e)
+    if (selectedIndices.value.size > 0) {
+      const firstIndex = Math.min(...selectedIndices.value)
+      selectedIndex.value = firstIndex
+      emit('image-selected', images.value[firstIndex])
+    }
+  }
+
+  isDragging.value = false
+  dragRect.value = null
+}
+
+// Ctrl+A / Cmd+A 全选
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    if (images.value.length === 0) return
+    e.preventDefault()
+    selectedIndices.value = new Set(images.value.map((_, i) => i))
+    selectedIndex.value = 0
+    lastAnchorIndex.value = 0
+    emit('image-selected', images.value[0])
+  }
+}
+
 onMounted(() => {
   if (browserEl.value) {
     containerWidth.value = browserEl.value.offsetWidth
@@ -336,12 +491,16 @@ onMounted(() => {
     })
     resizeObserver.observe(browserEl.value)
   }
+  window.addEventListener('keydown', onKeyDown)
 })
 
 onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect()
   }
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseup', onMouseUp)
+  window.removeEventListener('keydown', onKeyDown)
 })
 
 // 更新当前选中图片的评分
@@ -392,6 +551,13 @@ function removeImages(paths: string[]) {
   })
 }
 
+// Strip 模式：将纵向滚轮转换为横向滚动
+function onStripWheel(e: WheelEvent) {
+  const el = stripScrollerRef.value?.$el as HTMLElement | undefined
+  if (!el) return
+  el.scrollLeft += e.deltaY || e.deltaX
+}
+
 defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImageRating, removeImages })
 </script>
 
@@ -400,6 +566,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
     ref="browserEl"
     class="image-browser"
     @contextmenu.prevent="onContextMenu"
+    @mousedown="onMouseDown"
   >
     <!-- Strip 模式：向上收起按钮 -->
     <button
@@ -449,6 +616,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
           :image="imgData.img"
           :thumbnail="thumbnails.get(imgData.img.baseName) || null"
           :selected="selectedIndices.has(imgData.globalIndex)"
+          :data-index="imgData.globalIndex"
           size="large"
           @click="(e: MouseEvent) => onImageClick(imgData.globalIndex, e)"
           @dblclick="() => onImageDblClick(imgData.globalIndex)"
@@ -466,6 +634,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       key-field="baseName"
       direction="horizontal"
       v-slot="{ item, index }"
+      @wheel.prevent="onStripWheel"
     >
       <ImageThumbnail
         :image="item"
@@ -476,6 +645,18 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
         @dblclick="() => onImageDblClick(index)"
       />
     </RecycleScroller>
+
+    <!-- 拖拽选择框 -->
+    <div
+      v-if="isDragging && dragSelectionRect"
+      class="drag-selection-box"
+      :style="{
+        left: dragSelectionRect.left + 'px',
+        top: (dragSelectionRect.top - (gridScrollerRef?.$el?.scrollTop ?? 0)) + 'px',
+        width: dragSelectionRect.width + 'px',
+        height: dragSelectionRect.height + 'px',
+      }"
+    />
 
     <ContextMenu
       :visible="menuState.visible"
@@ -593,5 +774,15 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   display: flex;
   align-items: flex-start;
   padding: var(--spacing-xs);
+}
+
+/* 拖拽框选框 */
+.drag-selection-box {
+  position: absolute;
+  pointer-events: none;
+  border: 1.5px solid var(--primary);
+  background: oklch(from var(--primary) l c h / 0.12);
+  border-radius: 3px;
+  z-index: 100;
 }
 </style>

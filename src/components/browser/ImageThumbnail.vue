@@ -10,6 +10,9 @@ defineProps<{
   size?: 'normal' | 'large'
 }>()
 
+// 允许透传 data-index 等属性到根元素
+defineOptions({ inheritAttrs: true })
+
 const emit = defineEmits<{
   click: [e: MouseEvent]
   dblclick: [e: MouseEvent]
@@ -39,7 +42,7 @@ const emit = defineEmits<{
       <div v-if="image.fileCount > 1" class="file-badge">
         {{ image.fileCount }}
       </div>
-      <div v-if="image.exifInfo?.rating" class="rating-badge">
+      <div v-if="image.exifInfo != null" class="rating-badge">
         <Star
           v-for="i in 5"
           :key="i"

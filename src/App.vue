@@ -82,6 +82,14 @@ function handleCollapseUp() {
   appState.setViewMode('browse')
 }
 
+function handleFolderSelected(path: string) {
+  appState.setSelectedFolder(path)
+  appState.setCurrentImage(null)
+  if (appState.state.viewMode === 'view') {
+    appState.setViewMode('browse')
+  }
+}
+
 function handleDelete() {
   const image = appState.state.currentImage
   if (!image) return
@@ -146,7 +154,7 @@ onUnmounted(() => {
         <LeftPanel>
           <DirectoryTree
             :root-path="appState.state.rootPath"
-            @folder-selected="appState.setSelectedFolder"
+            @folder-selected="handleFolderSelected"
             @root-changed="appState.setRootPath"
           />
         </LeftPanel>
