@@ -155,12 +155,14 @@ const imageRows = computed(() => {
 })
 
 // 计算行高度
+// thumbnail + 24(label区) + 4(border*2) + 8(行间距)
 const rowHeight = computed(() => {
-  return currentThumbnailSize.value + 24 + 8
+  return currentThumbnailSize.value + 24 + 4 + 8
 })
 
 // Strip 模式下单个缩略图的水平宽度 (thumbnail-size + padding)
-const stripItemWidth = 130 + 8
+// thumbnail-size(130) + padding*2(8)
+const stripItemWidth = 130 + 12
 
 async function loadImages() {
   if (!props.selectedFolder) {

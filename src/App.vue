@@ -289,7 +289,7 @@ onUnmounted(() => {
 
 .browser-area--strip {
   flex: 0 0 190px;
-  background: var(--secondary);
+  background: var(--background);
   border-top: 1px solid var(--border);
 }
 </style>
