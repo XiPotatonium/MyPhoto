@@ -34,6 +34,7 @@ function onClick() {
         selectedPath === node.path && 'selected'
       )"
       :style="{ paddingLeft: `calc(${level} * var(--tree-indent) + var(--spacing-sm))` }"
+      :title="node.name"
       @click="onClick"
     >
       <ChevronRight

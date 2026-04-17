@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { FolderOpen, Image, RefreshCw } from 'lucide-vue-next'
+import { FolderOpen, Image, RefreshCw, ChevronUp } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
@@ -66,15 +66,20 @@ interface ThumbnailResult {
   error: string | null
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   selectedFolder: string | null
   sortField: SortField
   sortOrder: SortOrder
-}>()
+  mode?: 'grid' | 'strip'
+}>(), {
+  mode: 'grid',
+})
 
 const emit = defineEmits<{
   'image-selected': [image: ImageGroup]
+  'image-dblclick': [image: ImageGroup]
   'delete-requested': []
+  'collapse-up': []
 }>()
 
 const rawImages = ref<ImageGroup[]>([])
@@ -92,29 +97,28 @@ const images = computed(() => {
   return sortImages(rawImages.value, props.sortField, props.sortOrder)
 })
 
-// 计算每行显示的缩略图数量
-const itemsPerRow = computed(() => {
-  const thumbnailSize = 130 // 与 CSS 变量 --thumbnail-size 保持一致
-  const thumbnailPadding = 8 // 与 CSS 中 .image-thumbnail 的 padding 一致 (var(--spacing-xs) * 2 = 4px * 2)
-  const itemTotalWidth = thumbnailSize + thumbnailPadding // 单个缩略图项的总宽度
-  const gap = 8 // 与 CSS 中 .thumbnail-row 的 gap 一致 (var(--spacing-sm))
-  const padding = 8 // 与 CSS 中 .thumbnail-row 的 padding 一致 (var(--spacing-sm))
-  const availableWidth = containerWidth.value - padding * 2
-
-  // 调试输出
-  console.log('Container width:', containerWidth.value, 'Available width:', availableWidth, 'Item width:', itemTotalWidth)
-
-  if (availableWidth <= 0 || containerWidth.value === 0) {
-    console.log('Using default itemsPerRow: 4')
-    return 4 // 默认值
-  }
-
-  const result = Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
-  console.log('Items per row:', result)
-  return result
+// 当前模式下的缩略图尺寸
+const currentThumbnailSize = computed(() => {
+  return props.mode === 'grid' ? 260 : 130
 })
 
-// 将图片分组成行
+// 计算每行显示的缩略图数量（仅 grid 模式使用）
+const itemsPerRow = computed(() => {
+  const thumbnailSize = currentThumbnailSize.value
+  const thumbnailPadding = 8
+  const itemTotalWidth = thumbnailSize + thumbnailPadding
+  const gap = 8
+  const padding = 8
+  const availableWidth = containerWidth.value - padding * 2
+
+  if (availableWidth <= 0 || containerWidth.value === 0) {
+    return 4
+  }
+
+  return Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
+})
+
+// 将图片分组成行（grid 模式）
 const imageRows = computed(() => {
   const rows: Array<{ index: number; images: Array<{ img: ImageGroup; globalIndex: number }> }> = []
   for (let i = 0; i < images.value.length; i += itemsPerRow.value) {
@@ -129,8 +133,13 @@ const imageRows = computed(() => {
   return rows
 })
 
-// 计算行高度 (thumbnail-size 130px + label 约 20px + padding)
-const rowHeight = 130 + 24 + 8 // 缩略图高度 + label高度 + 间距
+// 计算行高度
+const rowHeight = computed(() => {
+  return currentThumbnailSize.value + 24 + 8
+})
+
+// Strip 模式下单个缩略图的水平宽度 (thumbnail-size + padding)
+const stripItemWidth = 130 + 8
 
 async function loadImages() {
   if (!props.selectedFolder) {
@@ -139,14 +148,13 @@ async function loadImages() {
   }
   loading.value = true
   try {
-    // 后端不再排序，只返回原始数据
     rawImages.value = await invoke<ImageGroup[]>('list_images', {
       dirPath: props.selectedFolder,
     })
     selectedIndex.value = -1
     selectedIndices.value.clear()
     thumbnails.value.clear()
-    loadThumbnailsBatch() // 不使用 await，让它在后台运行
+    loadThumbnailsBatch()
   } catch (e) {
     console.error('Failed to list images:', e)
     rawImages.value = []
@@ -158,7 +166,6 @@ async function loadImages() {
 async function loadThumbnailsBatch() {
   if (images.value.length === 0) return
 
-  // 设置事件监听器
   const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
     const { base_name, thumbnail, error } = event.payload
     if (thumbnail) {
@@ -168,18 +175,15 @@ async function loadThumbnailsBatch() {
     }
   })
 
-  // 收集所有文件路径
   const filePaths = images.value
     .map(img => img.jpgPath || img.rawPath)
     .filter(path => path !== null) as string[]
 
   try {
-    // 调用批量生成命令
     await invoke('generate_thumbnails_batch', { filePaths })
   } catch (e) {
     console.error('Failed to generate thumbnails batch:', e)
   } finally {
-    // 清理事件监听器
     unlisten()
   }
 }
@@ -200,13 +204,19 @@ function onImageClick(index: number, e: MouseEvent) {
   emit('image-selected', images.value[index])
 }
 
+function onImageDblClick(index: number) {
+  selectedIndex.value = index
+  selectedIndices.value.clear()
+  selectedIndices.value.add(index)
+  emit('image-dblclick', images.value[index])
+}
+
 function onContextMenu(e: MouseEvent) {
   const menuItems = [
     { label: '刷新文件夹', action: loadImages },
     { label: '删除', action: requestDelete },
   ]
 
-  // 只有在有选中图片时才显示修改EXIF信息选项
   if (selectedIndices.value.size > 0) {
     menuItems.push({ label: '修改EXIF信息', action: openExifDialog })
   }
@@ -215,7 +225,6 @@ function onContextMenu(e: MouseEvent) {
 }
 
 function requestDelete() {
-  // 触发删除请求事件，由父组件统一处理删除逻辑
   emit('delete-requested')
 }
 
@@ -234,11 +243,9 @@ function closeExifDialog() {
 async function handleExifConfirm(fields: ExifWriteRequest) {
   if (!exifDialogRef.value) return
 
-  // 设置加载状态
   exifDialogRef.value.loading = true
 
   try {
-    // 获取选中图片的路径，同时收集JPG和RAW路径
     const selectedImages = Array.from(selectedIndices.value).map(index => images.value[index])
     const filePaths: string[] = []
 
@@ -256,7 +263,6 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
       return
     }
 
-    // 对每个文件调用 write_exif_fields 命令
     const errors: string[] = []
     for (const filePath of filePaths) {
       try {
@@ -273,7 +279,6 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
       console.log(`Successfully updated EXIF for ${filePaths.length} file(s)`)
     }
 
-    // 关闭对话框
     closeExifDialog()
   } catch (e) {
     console.error('Failed to write EXIF info:', e)
@@ -296,9 +301,26 @@ function navigateImage(direction: number) {
   emit('image-selected', images.value[newIndex])
 }
 
-// 只在文件夹改变时重新加载图片
 watch(() => props.selectedFolder, loadImages)
-// 排序方式改变时不需要重新加载图片，computed 属性 images 会自动重新排序
+
+// 模式切换后恢复滚动位置到选中的图片
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const gridScrollerRef = ref<any>(null)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const stripScrollerRef = ref<any>(null)
+
+watch(() => props.mode, (newMode) => {
+  if (selectedIndex.value >= 0) {
+    nextTick(() => {
+      if (newMode === 'grid' && gridScrollerRef.value) {
+        const rowIndex = Math.floor(selectedIndex.value / itemsPerRow.value)
+        gridScrollerRef.value.scrollToItem(rowIndex)
+      } else if (newMode === 'strip' && stripScrollerRef.value) {
+        stripScrollerRef.value.scrollToItem(selectedIndex.value)
+      }
+    })
+  }
+})
 
 // 监听容器宽度变化
 const browserEl = ref<HTMLElement | null>(null)
@@ -329,7 +351,6 @@ function updateImageRating(rating: number) {
   const image = images.value[selectedIndex.value]
   if (!image) return
 
-  // 找到原始图片数据并更新
   const rawIndex = rawImages.value.findIndex(img => img.baseName === image.baseName)
   if (rawIndex >= 0 && rawImages.value[rawIndex].exifInfo) {
     rawImages.value[rawIndex].exifInfo!.rating = rating
@@ -340,12 +361,10 @@ function updateImageRating(rating: number) {
 function removeImages(paths: string[]) {
   const pathSet = new Set(paths)
 
-  // 过滤掉被删除的图片
   const newRawImages = rawImages.value.filter(img => {
     const jpgDeleted = img.jpgPath && pathSet.has(img.jpgPath)
     const rawDeleted = img.rawPath && pathSet.has(img.rawPath)
 
-    // 如果只删除了其中一个格式，更新图片组而不是移除
     if (jpgDeleted && !rawDeleted && img.rawPath) {
       img.jpgPath = null
       img.fileCount -= 1
@@ -357,17 +376,14 @@ function removeImages(paths: string[]) {
       return true
     }
 
-    // 如果两个都被删除，或者只有一个格式且被删除，则移除
     return !(jpgDeleted || rawDeleted)
   })
 
   rawImages.value = newRawImages
 
-  // 清除选中状态
   selectedIndices.value.clear()
   selectedIndex.value = -1
 
-  // 清除缩略图缓存
   paths.forEach(path => {
     const baseName = path.split('/').pop()?.split('.').shift()
     if (baseName) {
@@ -380,7 +396,22 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
 </script>
 
 <template>
-  <div ref="browserEl" class="image-browser" @contextmenu.prevent="onContextMenu">
+  <div
+    ref="browserEl"
+    class="image-browser"
+    @contextmenu.prevent="onContextMenu"
+  >
+    <!-- Strip 模式：向上收起按钮 -->
+    <button
+      v-if="mode === 'strip'"
+      class="collapse-up-btn"
+      title="返回浏览视图"
+      @click="emit('collapse-up')"
+    >
+      <ChevronUp class="h-4 w-4" />
+    </button>
+
+    <!-- 空状态 -->
     <div v-if="!selectedFolder" class="browser-empty-state">
       <div class="empty-icon">
         <FolderOpen class="h-12 w-12 text-muted-foreground/50" />
@@ -399,8 +430,11 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       <p class="empty-title">没有图像</p>
       <p class="empty-desc">此文件夹中没有支持的图像文件</p>
     </div>
+
+    <!-- Grid 模式：大图标网格，垂直滚动 -->
     <RecycleScroller
-      v-else
+      v-else-if="mode === 'grid'"
+      ref="gridScrollerRef"
       class="scroller"
       :items="imageRows"
       :item-size="rowHeight"
@@ -415,10 +449,34 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
           :image="imgData.img"
           :thumbnail="thumbnails.get(imgData.img.baseName) || null"
           :selected="selectedIndices.has(imgData.globalIndex)"
+          size="large"
           @click="(e: MouseEvent) => onImageClick(imgData.globalIndex, e)"
+          @dblclick="() => onImageDblClick(imgData.globalIndex)"
         />
       </div>
     </RecycleScroller>
+
+    <!-- Strip 模式：横向滚动单行 -->
+    <RecycleScroller
+      v-else
+      ref="stripScrollerRef"
+      class="strip-scroller"
+      :items="images"
+      :item-size="stripItemWidth"
+      key-field="baseName"
+      direction="horizontal"
+      v-slot="{ item, index }"
+    >
+      <ImageThumbnail
+        :image="item"
+        :thumbnail="thumbnails.get(item.baseName) || null"
+        :selected="selectedIndices.has(index)"
+        size="normal"
+        @click="(e: MouseEvent) => onImageClick(index, e)"
+        @dblclick="() => onImageDblClick(index)"
+      />
+    </RecycleScroller>
+
     <ContextMenu
       :visible="menuState.visible"
       :x="menuState.x"
@@ -441,8 +499,33 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
+/* 向上收起按钮 */
+.collapse-up-btn {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  color: var(--foreground);
+  transition: all var(--transition-fast);
+}
+
+.collapse-up-btn:hover {
+  background: var(--accent);
+}
+
+/* 空状态 */
 .browser-empty-state {
   display: flex;
   flex-direction: column;
@@ -481,6 +564,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   font-size: var(--font-size-sm);
 }
 
+/* Grid 模式滚动器 */
 .scroller {
   flex: 1;
   height: 100%;
@@ -499,10 +583,15 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   justify-content: flex-start;
 }
 
-/* 保留原 grid 样式作为 fallback */
-.thumbnail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--thumbnail-size), 1fr));
-  gap: var(--spacing-sm);
+/* Strip 模式：横向滚动 (RecycleScroller horizontal) */
+.strip-scroller {
+  flex: 1;
+  height: 100%;
+}
+
+.strip-scroller :deep(.vue-recycle-scroller__item-wrapper) {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--spacing-xs);
 }
 </style>

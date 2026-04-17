@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ImageOff } from 'lucide-vue-next'
+import { ImageOff, Star } from 'lucide-vue-next'
 import type { ImageGroup } from '../../types/image'
 import { cn } from '../../lib/utils'
 
@@ -7,10 +7,12 @@ defineProps<{
   image: ImageGroup
   thumbnail: string | null
   selected: boolean
+  size?: 'normal' | 'large'
 }>()
 
 const emit = defineEmits<{
   click: [e: MouseEvent]
+  dblclick: [e: MouseEvent]
 }>()
 </script>
 
@@ -18,9 +20,11 @@ const emit = defineEmits<{
   <div
     :class="cn(
       'image-thumbnail group',
-      selected && 'selected'
+      selected && 'selected',
+      size === 'large' && 'image-thumbnail--large'
     )"
     @click="(e) => emit('click', e)"
+    @dblclick="(e) => emit('dblclick', e)"
   >
     <div class="thumb-container">
       <img
@@ -34,6 +38,16 @@ const emit = defineEmits<{
       </div>
       <div v-if="image.fileCount > 1" class="file-badge">
         {{ image.fileCount }}
+      </div>
+      <div v-if="image.exifInfo?.rating" class="rating-badge">
+        <Star
+          v-for="i in 5"
+          :key="i"
+          :class="cn(
+            'rating-star',
+            i <= (image.exifInfo?.rating || 0) ? 'rating-star--filled' : 'rating-star--empty'
+          )"
+        />
       </div>
     </div>
     <div class="thumb-label" :title="image.baseName">
@@ -121,5 +135,57 @@ const emit = defineEmits<{
 .image-thumbnail.selected .thumb-label {
   color: var(--foreground);
   font-weight: 600;
+}
+
+/* Large size variant */
+.image-thumbnail--large .thumb-container {
+  width: var(--thumbnail-size-large);
+  height: var(--thumbnail-size-large);
+}
+
+.image-thumbnail--large .thumb-label {
+  width: var(--thumbnail-size-large);
+}
+
+/* Rating badge */
+.rating-badge {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 3px;
+  background: oklch(from var(--foreground) l c h / 0.5);
+  border-radius: 3px;
+}
+
+.rating-star {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.rating-star--filled {
+  fill: var(--color-star);
+  color: var(--color-star);
+}
+
+.rating-star--empty {
+  fill: none;
+  color: oklch(1 0 0 / 0.4);
+}
+
+.image-thumbnail--large .rating-star {
+  width: 14px;
+  height: 14px;
+}
+
+.image-thumbnail--large .rating-badge {
+  padding: 2px 4px;
+  gap: 1px;
+  bottom: 4px;
+  right: 4px;
+  border-radius: 4px;
 }
 </style>

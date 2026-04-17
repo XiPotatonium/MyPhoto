@@ -85,8 +85,9 @@
      -------------------------------------------- */
   --topbar-height: 48px;
   --thumbnail-size: 130px;
-  --left-panel-width: 320px;
-  --right-panel-width: 300px;
+  --thumbnail-size-large: 260px;
+  --left-panel-width: 280px;
+  --right-panel-width: 280px;
   --splitter-size: 4px;
   --tree-indent: 1rem;
 

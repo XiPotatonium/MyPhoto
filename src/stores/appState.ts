@@ -9,6 +9,8 @@ interface ConfirmDialogState {
   onConfirm: (value: string) => void
 }
 
+export type ViewMode = 'browse' | 'view'
+
 interface AppState {
   rootPath: string | null
   selectedFolder: string | null
@@ -17,6 +19,7 @@ interface AppState {
   currentFormat: 'jpg' | 'raw'
   sortField: SortField
   sortOrder: SortOrder
+  viewMode: ViewMode
   confirmDialog: ConfirmDialogState
 }
 
@@ -28,6 +31,7 @@ const state = reactive<AppState>({
   currentFormat: 'jpg',
   sortField: 'name',
   sortOrder: 'asc',
+  viewMode: 'browse',
   confirmDialog: {
     visible: false,
     title: '',
@@ -69,6 +73,10 @@ export function useAppState() {
     state.sortOrder = order
   }
 
+  function setViewMode(mode: ViewMode) {
+    state.viewMode = mode
+  }
+
   function showConfirmDialog(
     title: string,
     message: string,
@@ -91,6 +99,7 @@ export function useAppState() {
     setCurrentFormat,
     setSortField,
     setSortOrder,
+    setViewMode,
     showConfirmDialog,
     hideConfirmDialog,
   }
