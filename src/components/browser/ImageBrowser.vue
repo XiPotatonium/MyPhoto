@@ -304,12 +304,10 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
     }
 
     const errors: string[] = []
-    for (const filePath of filePaths) {
-      try {
-        await invoke('write_exif_fields', { filePath, fields })
-      } catch (e) {
-        errors.push(`${filePath}: ${e}`)
-      }
+    try {
+      await invoke('write_exif_fields', { filePaths, fields })
+    } catch (e) {
+      errors.push(String(e))
     }
 
     if (errors.length > 0) {

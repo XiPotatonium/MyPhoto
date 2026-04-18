@@ -27,7 +27,6 @@ pub fn run() {
             commands::exif_cmd::read_exif,
             commands::exif_cmd::write_rating,
             commands::exif_cmd::write_exif_fields,
-            commands::exif_cmd::batch_write_gps,
             commands::trash_cmd::move_to_trash,
         ])
         .run(tauri::generate_context!())

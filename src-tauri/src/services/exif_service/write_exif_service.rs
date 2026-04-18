@@ -3,10 +3,9 @@ use std::io::{BufReader, Cursor};
 use std::path::Path;
 
 use exif::experimental::Writer as ExifWriter;
-use exif::{Field, In, Rational, Tag, Value};
+use exif::{Context, Field, In, Rational, Tag, Value};
 
 use crate::models::exif::ExifWriteRequest;
-use super::write_gps_service::write_jpeg_with_exif;
 
 /// Write multiple EXIF fields to a JPEG file.
 ///
@@ -56,6 +55,10 @@ pub fn write_exif_fields_jpg(
         tags_to_replace.push(Tag::GPSLatitude);
         tags_to_replace.push(Tag::GPSLongitudeRef);
         tags_to_replace.push(Tag::GPSLongitude);
+    }
+    if req.rating.is_some() {
+        tags_to_replace.push(Tag(Context::Tiff, 0x4746)); // Rating
+        tags_to_replace.push(Tag(Context::Tiff, 0x4749)); // RatingPercent
     }
 
     // Build new fields to write
@@ -166,6 +169,26 @@ pub fn write_exif_fields_jpg(
         });
     }
 
+    if let Some(rating) = req.rating {
+        if rating > 5 {
+            return Err(crate::error::AppError::General(
+                "Rating must be between 0 and 5".to_string(),
+            ));
+        }
+        // Rating tag (0x4746) in IFD0
+        new_fields.push(Field {
+            tag: Tag(Context::Tiff, 0x4746),
+            ifd_num: In::PRIMARY,
+            value: Value::Short(vec![rating as u16]),
+        });
+        // RatingPercent tag (0x4749): 0-5 → 0, 20, 40, 60, 80, 100
+        new_fields.push(Field {
+            tag: Tag(Context::Tiff, 0x4749),
+            ifd_num: In::PRIMARY,
+            value: Value::Short(vec![(rating as u16) * 20]),
+        });
+    }
+
     let original_data = std::fs::read(file_path)?;
 
     // Merge with existing EXIF
@@ -207,6 +230,20 @@ pub fn write_exif_fields_jpg(
     write_jpeg_with_exif(file_path, &original_data, &exif_data)?;
 
     Ok(())
+}
+
+/// Write multiple EXIF fields to a RAF (Fujifilm RAW) file.
+///
+/// This is a placeholder for future RAF write support.
+/// Currently returns an error indicating the feature is not yet implemented.
+pub fn write_exif_fields_raf(
+    file_path: &Path,
+    _req: &ExifWriteRequest,
+) -> Result<(), crate::error::AppError> {
+    Err(crate::error::AppError::General(format!(
+        "Writing EXIF to RAF files is not yet implemented: {}",
+        file_path.display()
+    )))
 }
 
 /// Parse a shutter speed string into (numerator, denominator).
@@ -253,4 +290,474 @@ fn decimal_degrees_to_dms(decimal: f64) -> Vec<Rational> {
         Rational { num: minutes as u32, denom: 1 },
         Rational { num: sec_numerator, denom: 1_000_000 },
     ]
+}
+
+/// Write EXIF data into a JPEG file by replacing or adding the APP1 EXIF segment.
+///
+/// This function handles JPEG marker structure properly:
+/// - Preserves SOI (Start of Image) marker
+/// - Replaces existing APP1 EXIF segment or inserts new one after SOI
+/// - Preserves all other segments and image data
+pub(crate) fn write_jpeg_with_exif(
+    file_path: &Path,
+    original_data: &[u8],
+    exif_data: &[u8],
+) -> Result<(), crate::error::AppError> {
+    const SOI: [u8; 2] = [0xFF, 0xD8];
+    const APP1: u8 = 0xE1;
+    const EXIF_HEADER: [u8; 6] = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // "Exif\0\0"
+
+    if original_data.len() < 2 || original_data[0..2] != SOI {
+        return Err(crate::error::AppError::General(
+            "Not a valid JPEG file".to_string(),
+        ));
+    }
+
+    let mut output = Vec::new();
+    output.extend_from_slice(&SOI);
+
+    // Build the new APP1 EXIF segment
+    let exif_segment_size = 2 + 6 + exif_data.len(); // size field (2) + "Exif\0\0" (6) + data
+    if exif_segment_size > 0xFFFF {
+        return Err(crate::error::AppError::General(
+            "EXIF data too large".to_string(),
+        ));
+    }
+
+    output.push(0xFF);
+    output.push(APP1);
+    output.extend_from_slice(&(exif_segment_size as u16).to_be_bytes());
+    output.extend_from_slice(&EXIF_HEADER);
+    output.extend_from_slice(exif_data);
+
+    // Parse the rest of the original JPEG, skipping existing EXIF APP1 segment
+    let mut pos = 2; // Skip SOI
+
+    while pos + 1 < original_data.len() {
+        if original_data[pos] != 0xFF {
+            break;
+        }
+
+        let marker = original_data[pos + 1];
+        pos += 2;
+
+        // Skip existing APP1 EXIF segment
+        if marker == APP1 && pos + 2 <= original_data.len() {
+            let seg_size =
+                u16::from_be_bytes([original_data[pos], original_data[pos + 1]]) as usize;
+
+            if pos + seg_size <= original_data.len()
+                && seg_size >= 8
+                && original_data[pos + 2..pos + 8] == EXIF_HEADER
+            {
+                pos += seg_size;
+                continue;
+            }
+        }
+
+        // Copy other segments as-is
+        if marker == 0xD8 || marker == 0xD9 {
+            // SOI / EOI -- no size field
+            output.push(0xFF);
+            output.push(marker);
+        } else if (0xD0..=0xD7).contains(&marker) {
+            // RST markers -- no size field
+            output.push(0xFF);
+            output.push(marker);
+        } else if pos + 2 <= original_data.len() {
+            let seg_size =
+                u16::from_be_bytes([original_data[pos], original_data[pos + 1]]) as usize;
+            if pos + seg_size <= original_data.len() {
+                output.push(0xFF);
+                output.push(marker);
+                output.extend_from_slice(&original_data[pos..pos + seg_size]);
+                pos += seg_size;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if pos < original_data.len() {
+        output.extend_from_slice(&original_data[pos..]);
+    }
+
+    std::fs::write(file_path, &output)?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::exif::ExifWriteRequest;
+    use crate::services::exif_service::read_exif_service;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// Root directory of the project (src-tauri/)
+    fn project_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// Copy a test data file to the test_output directory and return the destination path.
+    /// Uses a unique suffix to avoid collisions between test cases.
+    fn copy_test_file(filename: &str, suffix: &str) -> PathBuf {
+        let src = project_root().join("test_data").join(filename);
+        let dest_dir = project_root().join("test_output");
+        fs::create_dir_all(&dest_dir).unwrap();
+
+        let stem = filename.strip_suffix(".jpg")
+            .or_else(|| filename.strip_suffix(".RAF"))
+            .unwrap_or("sample");
+        let ext = if filename.ends_with(".RAF") { ".RAF" } else { ".jpg" };
+        let dest_name = format!("{}_{}{}", stem, suffix, ext);
+        let dest = dest_dir.join(&dest_name);
+        fs::copy(&src, &dest).unwrap();
+        dest
+    }
+
+    // ── Helper: write + read-back verification ────────────────────────────────
+
+    /// Write EXIF fields to a file and read them back.
+    fn write_and_readback(path: &Path, req: &ExifWriteRequest) -> crate::models::exif::ExifInfo {
+        write_exif_fields_jpg(path, req).expect("write_exif_fields_jpg failed");
+        read_exif_service::read_exif_jpg(path).expect("read_exif_jpg failed")
+    }
+
+    // ── Individual field tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_write_and_read_datetime_jpg() {
+        let path = copy_test_file("sample.jpg", "datetime");
+        let req = ExifWriteRequest {
+            datetime: Some("2025:01:15 10:30:00".to_string()),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.datetime.as_ref().map_or(false, |dt| dt.contains("2025") && dt.contains("01") && dt.contains("15")),
+            "DateTime mismatch: {:?}", info.datetime);
+    }
+
+    #[test]
+    fn test_write_and_read_camera_model_jpg() {
+        let path = copy_test_file("sample.jpg", "cam_model");
+        let req = ExifWriteRequest {
+            camera_model: Some("TestCamera X100".to_string()),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert_eq!(info.camera_model.as_deref(), Some("TestCamera X100"));
+    }
+
+    #[test]
+    fn test_write_and_read_gps_jpg() {
+        let path = copy_test_file("sample.jpg", "gps");
+        let req = ExifWriteRequest {
+            gps_latitude: Some(35.681236),
+            gps_longitude: Some(139.767125),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.gps_latitude.is_some(), "GPS latitude should be set");
+        assert!(info.gps_longitude.is_some(), "GPS longitude should be set");
+        let lat = info.gps_latitude.unwrap();
+        let lon = info.gps_longitude.unwrap();
+        assert!((lat - 35.681236).abs() < 0.001, "Latitude mismatch: {}", lat);
+        assert!((lon - 139.767125).abs() < 0.001, "Longitude mismatch: {}", lon);
+    }
+
+    #[test]
+    fn test_write_and_read_rating_jpg() {
+        let path = copy_test_file("sample.jpg", "rating");
+        let req = ExifWriteRequest {
+            rating: Some(4),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert_eq!(info.rating, Some(4), "Rating should be 4");
+    }
+
+    #[test]
+    fn test_write_and_read_focal_length_jpg() {
+        let path = copy_test_file("sample.jpg", "focal");
+        let req = ExifWriteRequest {
+            focal_length: Some(50.0),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.focal_length.is_some(), "Focal length should be set");
+        let fl = info.focal_length.unwrap();
+        assert!((fl - 50.0).abs() < 1.0, "Focal length mismatch: {}", fl);
+    }
+
+    #[test]
+    fn test_write_and_read_shutter_speed_jpg() {
+        let path = copy_test_file("sample.jpg", "shutter");
+        let req = ExifWriteRequest {
+            shutter_speed: Some("1/250".to_string()),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.shutter_speed.is_some(), "Shutter speed should be set");
+    }
+
+    #[test]
+    fn test_write_and_read_aperture_jpg() {
+        let path = copy_test_file("sample.jpg", "aperture");
+        let req = ExifWriteRequest {
+            aperture: Some(2.8),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.aperture.is_some(), "Aperture should be set");
+        let ap = info.aperture.unwrap();
+        assert!((ap - 2.8).abs() < 0.1, "Aperture mismatch: {}", ap);
+    }
+
+    #[test]
+    fn test_write_and_read_iso_jpg() {
+        let path = copy_test_file("sample.jpg", "iso");
+        let req = ExifWriteRequest {
+            iso: Some(800),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert_eq!(info.iso, Some(800), "ISO should be 800");
+    }
+
+    // ── Multi-field and overwrite tests ───────────────────────────────────────
+
+    #[test]
+    fn test_write_multiple_fields_jpg() {
+        let path = copy_test_file("sample.jpg", "multi");
+        let req = ExifWriteRequest {
+            datetime: Some("2025:06:01 12:00:00".to_string()),
+            camera_model: Some("MultiTest Camera".to_string()),
+            focal_length: Some(35.0),
+            aperture: Some(4.0),
+            iso: Some(200),
+            rating: Some(5),
+            ..Default::default()
+        };
+        let info = write_and_readback(&path, &req);
+        assert!(info.datetime.as_ref().map_or(false, |dt| dt.contains("2025") && dt.contains("06") && dt.contains("01")),
+            "DateTime mismatch: {:?}", info.datetime);
+        assert_eq!(info.camera_model.as_deref(), Some("MultiTest Camera"));
+        assert!(info.focal_length.is_some());
+        assert!(info.aperture.is_some());
+        assert_eq!(info.iso, Some(200));
+        assert_eq!(info.rating, Some(5));
+    }
+
+    #[test]
+    fn test_overwrite_existing_field_jpg() {
+        let path = copy_test_file("sample.jpg", "overwrite");
+        // First write
+        let req1 = ExifWriteRequest {
+            camera_model: Some("FirstModel".to_string()),
+            ..Default::default()
+        };
+        let info1 = write_and_readback(&path, &req1);
+        assert_eq!(info1.camera_model.as_deref(), Some("FirstModel"));
+        // Overwrite
+        let req2 = ExifWriteRequest {
+            camera_model: Some("SecondModel".to_string()),
+            ..Default::default()
+        };
+        let info2 = write_and_readback(&path, &req2);
+        assert_eq!(info2.camera_model.as_deref(), Some("SecondModel"));
+    }
+
+    // ── Batch parallel write test ─────────────────────────────────────────────
+
+    #[test]
+    fn test_batch_write_parallel_jpg() {
+        // Prepare multiple test file copies
+        let paths: Vec<String> = (0..4)
+            .map(|i| {
+                let p = copy_test_file("sample.jpg", &format!("batch_{}", i));
+                p.to_string_lossy().to_string()
+            })
+            .collect();
+
+        let req = ExifWriteRequest {
+            camera_model: Some("BatchTest".to_string()),
+            rating: Some(3),
+            ..Default::default()
+        };
+
+        crate::services::exif_service::write_exif_fields(&paths, &req)
+            .expect("batch write_exif_fields failed");
+
+        // Verify each file
+        for path_str in &paths {
+            let info = read_exif_service::read_exif_jpg(Path::new(path_str))
+                .expect("read_exif_jpg failed");
+            assert_eq!(info.camera_model.as_deref(), Some("BatchTest"));
+            assert_eq!(info.rating, Some(3));
+        }
+    }
+
+    // ── RAF read test ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_read_exif_raf() {
+        let path = project_root().join("test_data").join("sample.RAF");
+        let info = read_exif_service::read_exif_raf(&path)
+            .expect("read_exif_raf failed");
+        // RAF should have some EXIF data
+        assert!(info.camera_model.is_some() || info.datetime.is_some(),
+            "RAF file should contain at least camera model or datetime");
+    }
+
+    // ── Rating validation test ───────────────────────────────────────────────
+
+    #[test]
+    fn test_rating_validation() {
+        let path = copy_test_file("sample.jpg", "rating_invalid");
+        let req = ExifWriteRequest {
+            rating: Some(6), // invalid: > 5
+            ..Default::default()
+        };
+        let result = write_exif_fields_jpg(&path, &req);
+        assert!(result.is_err(), "Rating > 5 should be rejected");
+    }
+
+    // ── Batch GPS via write_exif_fields ───────────────────────────────────────
+
+    #[test]
+    fn test_batch_write_gps_via_write_exif_fields() {
+        let paths: Vec<String> = (0..3)
+            .map(|i| {
+                let p = copy_test_file("sample.jpg", &format!("batch_gps_{}", i));
+                p.to_string_lossy().to_string()
+            })
+            .collect();
+
+        let req = ExifWriteRequest {
+            gps_latitude: Some(40.7128),
+            gps_longitude: Some(-74.0060),
+            ..Default::default()
+        };
+
+        crate::services::exif_service::write_exif_fields(&paths, &req)
+            .expect("batch GPS write failed");
+
+        for path_str in &paths {
+            let info = read_exif_service::read_exif_jpg(Path::new(path_str))
+                .expect("read_exif_jpg failed");
+            assert!(info.gps_latitude.is_some(), "GPS latitude should be set");
+            assert!(info.gps_longitude.is_some(), "GPS longitude should be set");
+            let lat = info.gps_latitude.unwrap();
+            let lon = info.gps_longitude.unwrap();
+            assert!((lat - 40.7128).abs() < 0.001, "Latitude mismatch: {}", lat);
+            assert!((lon - (-74.0060)).abs() < 0.001, "Longitude mismatch: {}", lon);
+        }
+    }
+
+    // ── Shutter speed parsing tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_parse_shutter_speed_fraction() {
+        assert_eq!(parse_shutter_speed("1/500"), Some((1, 500)));
+        assert_eq!(parse_shutter_speed("1/ 500"), Some((1, 500)));
+    }
+
+    #[test]
+    fn test_parse_shutter_speed_whole() {
+        assert_eq!(parse_shutter_speed("2"), Some((2, 1)));
+        assert_eq!(parse_shutter_speed("2.0"), Some((2, 1)));
+    }
+
+    #[test]
+    fn test_parse_shutter_speed_decimal() {
+        assert_eq!(parse_shutter_speed("0.5"), Some((1, 2)));
+    }
+
+    #[test]
+    fn test_parse_shutter_speed_invalid() {
+        assert_eq!(parse_shutter_speed("abc"), None);
+        assert_eq!(parse_shutter_speed("1/0"), None);
+        assert_eq!(parse_shutter_speed("-1"), None);
+    }
+
+    // ── DMS conversion test ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_decimal_degrees_to_dms() {
+        let dms = decimal_degrees_to_dms(40.7128);
+        assert_eq!(dms[0].num, 40);  // degrees
+        assert_eq!(dms[1].num, 42);  // minutes
+        // seconds: 0.768 * 60 = 46.08 → 46080000 / 1000000
+        assert!((dms[2].to_f64() - 46.08).abs() < 0.1, "Seconds mismatch: {}", dms[2].to_f64());
+    }
+
+    // ── RAF write stub tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_write_exif_fields_raf_not_implemented() {
+        let path = project_root().join("test_data").join("sample.RAF");
+        let req = ExifWriteRequest {
+            rating: Some(3),
+            ..Default::default()
+        };
+        let result = write_exif_fields_raf(&path, &req);
+        assert!(result.is_err(), "RAF write should return an error");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not yet implemented") || err_msg.contains("not yet supported"),
+            "Error should mention not implemented: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_write_exif_fields_raf_preserves_file() {
+        // Ensure the stub does NOT modify the RAF file
+        let path = copy_test_file("sample.RAF", "write_raf");
+        let original_size = fs::metadata(&path).unwrap().len();
+
+        let req = ExifWriteRequest {
+            camera_model: Some("TestModel".to_string()),
+            ..Default::default()
+        };
+        let result = write_exif_fields_raf(&path, &req);
+        assert!(result.is_err());
+
+        let after_size = fs::metadata(&path).unwrap().len();
+        assert_eq!(
+            original_size, after_size,
+            "RAF file should not be modified by the stub function"
+        );
+    }
+
+    #[test]
+    fn test_write_exif_fields_mixed_with_raf() {
+        // When a batch contains both JPG and RAF paths,
+        // the RAF file should cause an error while JPG files are written successfully.
+        let jpg_path = copy_test_file("sample.jpg", "mixed_raf");
+        let raf_path = copy_test_file("sample.RAF", "mixed_raf");
+
+        let paths = vec![
+            jpg_path.to_string_lossy().to_string(),
+            raf_path.to_string_lossy().to_string(),
+        ];
+
+        let req = ExifWriteRequest {
+            rating: Some(3),
+            ..Default::default()
+        };
+
+        let result = crate::services::exif_service::write_exif_fields(&paths, &req);
+        assert!(result.is_err(), "Batch with RAF should fail");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("RAF") || err_msg.contains("raf"),
+            "Error should mention RAF: {}",
+            err_msg
+        );
+    }
 }

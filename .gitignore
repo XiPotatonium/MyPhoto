@@ -27,3 +27,4 @@ dist-ssr
 
 # test_data/*
 # src-tauri/test_data/*
+src-tauri/test_output/*

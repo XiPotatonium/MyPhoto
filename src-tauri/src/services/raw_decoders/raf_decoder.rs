@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn test_export_jpeg() {
         let test_file = "test_data/sample.RAF";
-        let output_file = "test_data/output.jpg";
+        let output_file = "test_output/output.jpg";
         
         if !PathBuf::from(test_file).exists() {
             println!("跳过测试：测试文件不存在 {}", test_file);
