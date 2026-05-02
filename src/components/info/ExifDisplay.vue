@@ -115,11 +115,9 @@ watch(() => props.image, loadExif, { immediate: true })
 
 <style scoped>
 .info-card {
-  border: 1px solid var(--border);
-  border-radius: 0;
-  border-left: none;
-  border-right: none;
-  border-top: none;
+  /* Let Card defaults (rounded-xl, border, shadow-sm) create floating card effect */
+  padding-block: 0 !important;
+  gap: 0 !important;
 }
 
 .card-header {

@@ -1,72 +1,114 @@
 <script setup lang="ts">
 import type { ImageGroup } from '../../types/image'
 import { cn } from '../../lib/utils'
+import { Card, CardHeader, CardTitle, CardAction } from '../ui/card'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   image: ImageGroup
   currentFormat: 'jpg' | 'raw'
-}>()
+  disabled?: boolean
+}>(), {
+  disabled: false,
+})
 
 const emit = defineEmits<{
   'update:format': [format: 'jpg' | 'raw']
 }>()
+
+function switchFormat(format: 'jpg' | 'raw') {
+  if (props.disabled) return
+  emit('update:format', format)
+}
 </script>
 
 <template>
-  <div class="format-tab-bar">
-    <div class="format-tab-group">
-      <button
-        v-if="image.jpgPath"
-        :class="cn(
-          'format-tab',
-          currentFormat === 'jpg' && 'format-tab--active'
-        )"
-        @click="emit('update:format', 'jpg')"
-      >
-        JPG
-      </button>
-      <button
-        v-if="image.rawPath"
-        :class="cn(
-          'format-tab',
-          currentFormat === 'raw' && 'format-tab--active'
-        )"
-        @click="emit('update:format', 'raw')"
-      >
-        RAW
-      </button>
-    </div>
-  </div>
+  <Card :class="cn('format-card', disabled && 'format-card--disabled')">
+    <CardHeader class="format-card-header">
+      <CardTitle class="format-card-title">
+        {{ image.baseName }}
+      </CardTitle>
+      <CardAction>
+        <div class="format-tabs">
+          <button
+            v-if="image.jpgPath"
+            :class="cn(
+              'format-btn',
+              currentFormat === 'jpg' && 'format-btn--active',
+              disabled && 'format-btn--disabled'
+            )"
+            :disabled="disabled"
+            @click="switchFormat('jpg')"
+          >
+            JPG
+          </button>
+          <button
+            v-if="image.rawPath"
+            :class="cn(
+              'format-btn',
+              currentFormat === 'raw' && 'format-btn--active',
+              disabled && 'format-btn--disabled'
+            )"
+            :disabled="disabled"
+            @click="switchFormat('raw')"
+          >
+            RAW
+          </button>
+        </div>
+      </CardAction>
+    </CardHeader>
+  </Card>
 </template>
 
 <style scoped>
-.format-tab-bar {
+.format-card {
+  /* Override Card default py-6 gap-6 for compact layout */
+  padding-block: 0 !important;
+  gap: 0 !important;
+}
+
+.format-card--disabled {
+  opacity: 0.6;
+}
+
+.format-card-header {
   display: flex;
-  justify-content: center;
-  padding: var(--spacing-sm);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  background: var(--background);
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  gap: var(--spacing-sm);
 }
 
-.format-tab-group {
+.format-card-title {
+  font-size: var(--font-size-sm) !important;
+  font-weight: var(--font-weight-semibold) !important;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.format-tabs {
   display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
   background: var(--muted);
-  border-radius: var(--radius-md);
-  padding: 3px;
-  gap: 3px;
+  border-radius: var(--radius-sm);
+  padding: 2px;
 }
 
-.format-tab {
-  min-width: 72px;
-  height: 32px;
-  padding: 0 20px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
+.format-btn {
+  min-width: 48px;
+  height: 26px;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wider);
   color: var(--muted-foreground);
   background: transparent;
   border: none;
-  border-radius: calc(var(--radius-md) - 2px);
+  border-radius: calc(var(--radius-sm) - 2px);
   cursor: pointer;
   transition: all var(--transition-fast);
   display: flex;
@@ -74,18 +116,24 @@ const emit = defineEmits<{
   justify-content: center;
 }
 
-.format-tab:hover {
+.format-btn:hover:not(.format-btn--active):not(:disabled) {
   color: var(--foreground);
+  background: oklch(from var(--muted) l c h / 0.5);
 }
 
-.format-tab--active {
+.format-btn--active {
   background: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
 }
 
-.format-tab--active:hover {
+.format-btn--active:hover {
   background: var(--primary);
   color: var(--primary-foreground);
+}
+
+.format-btn--disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 </style>

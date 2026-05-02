@@ -174,12 +174,6 @@ onUnmounted(() => {
       <div class="center-panel-container">
         <!-- 图像查看区域：browse 模式下高度 0，view 模式下占满上方 -->
         <div :class="['viewer-area', appState.state.viewMode === 'view' && 'viewer-area--active']">
-          <FormatTabBar
-            v-if="appState.state.currentImage"
-            :image="appState.state.currentImage"
-            :current-format="appState.state.currentFormat"
-            @update:format="appState.setCurrentFormat"
-          />
           <ImageViewer
             :image="appState.state.currentImage"
             :format="appState.state.currentFormat"
@@ -205,6 +199,13 @@ onUnmounted(() => {
       <!-- 右列：照片信息 -->
       <div class="right-panel-container">
         <RightPanel>
+          <FormatTabBar
+            v-if="appState.state.currentImage"
+            :image="appState.state.currentImage"
+            :current-format="appState.state.currentFormat"
+            :disabled="appState.state.viewMode !== 'view'"
+            @update:format="appState.setCurrentFormat"
+          />
           <ExifDisplay
             :image="appState.state.currentImage"
           />
