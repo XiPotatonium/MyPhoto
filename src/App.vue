@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { provide, ref, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useAppState } from './stores/appState'
 import { useTheme } from './composables/useTheme'
 import type { ImageGroup } from './types/image'
-import TopFilterBar from './components/layout/TopFilterBar.vue'
 import LeftPanel from './components/layout/LeftPanel.vue'
 import RightPanel from './components/layout/RightPanel.vue'
 import DirectoryTree from './components/directory/DirectoryTree.vue'
@@ -28,7 +28,7 @@ const appState = useAppState()
 provide('appState', appState)
 
 // Initialize theme
-useTheme()
+const { setTheme } = useTheme()
 
 const imageBrowserRef = ref<InstanceType<typeof ImageBrowser> | null>(null)
 
@@ -131,23 +131,33 @@ function handleDelete() {
   )
 }
 
-onMounted(() => {
+let unlistenCallbacks: Array<() => void> = []
+
+onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
+
+  // Listen for native menu events
+  const unlistenSortField = await listen<string>('menu-sort-field', (event) => {
+    appState.setSortField(event.payload as 'name' | 'date' | 'rating')
+  })
+  const unlistenSortOrder = await listen<string>('menu-sort-order', (event) => {
+    appState.setSortOrder(event.payload as 'asc' | 'desc')
+  })
+  const unlistenTheme = await listen<string>('menu-theme', (event) => {
+    setTheme(event.payload as 'light' | 'dark')
+  })
+
+  unlistenCallbacks = [unlistenSortField, unlistenSortOrder, unlistenTheme]
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
+  unlistenCallbacks.forEach((fn) => fn())
 })
 </script>
 
 <template>
   <div class="app-container">
-    <TopFilterBar
-      :sort-field="appState.state.sortField"
-      :sort-order="appState.state.sortOrder"
-      @update:sort-field="appState.setSortField"
-      @update:sort-order="appState.setSortOrder"
-    />
     <div class="main-layout">
       <!-- 左列：目录树，占满整列 -->
       <div class="left-panel-container">

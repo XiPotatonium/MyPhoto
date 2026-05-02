@@ -113,7 +113,6 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: calc(var(--radius) - 4px);
   box-shadow: var(--shadow-lg);
 }
 </style>
