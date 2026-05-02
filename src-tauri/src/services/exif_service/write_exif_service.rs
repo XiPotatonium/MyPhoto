@@ -1,30 +1,20 @@
-use std::fs::File;
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::path::Path;
 
+use byteorder::{BigEndian, ByteOrder};
 use exif::experimental::Writer as ExifWriter;
 use exif::{Context, Field, In, Rational, Tag, Value};
 
 use crate::models::exif::ExifWriteRequest;
 
-/// Write multiple EXIF fields to a JPEG file.
-///
-/// Uses a merge strategy: reads existing EXIF, replaces the requested fields,
-/// and writes the result back. Fields set to `None` in the request are left
-/// unchanged (their existing values are preserved).
-pub fn write_exif_fields_jpg(
-    file_path: &Path,
-    req: &ExifWriteRequest,
-) -> Result<(), crate::error::AppError> {
-    if !file_path.exists() {
-        return Err(crate::error::AppError::General(format!(
-            "File not found: {}",
-            file_path.display()
-        )));
-    }
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
-    // Collect the set of tags that will be overwritten so we can strip them
-    // from the existing EXIF before appending the new values.
+/// Build the list of EXIF tags to replace and the new fields from a write request.
+///
+/// Shared by both JPEG and RAF write paths. Pure data conversion, no I/O.
+fn build_exif_changes(
+    req: &ExifWriteRequest,
+) -> Result<(Vec<Tag>, Vec<Field>), crate::error::AppError> {
     let mut tags_to_replace: Vec<Tag> = Vec::new();
 
     if req.datetime.is_some() {
@@ -61,7 +51,6 @@ pub fn write_exif_fields_jpg(
         tags_to_replace.push(Tag(Context::Tiff, 0x4749)); // RatingPercent
     }
 
-    // Build new fields to write
     let mut new_fields: Vec<Field> = Vec::new();
 
     if let Some(ref dt) = req.datetime {
@@ -189,17 +178,22 @@ pub fn write_exif_fields_jpg(
         });
     }
 
-    let original_data = std::fs::read(file_path)?;
+    Ok((tags_to_replace, new_fields))
+}
 
-    // Merge with existing EXIF
-    let file = File::open(file_path)?;
-    let mut bufreader = BufReader::new(&file);
+/// Read existing EXIF from JPEG data, merge with new fields, and serialize.
+///
+/// Returns the raw EXIF bytes (TIFF format) ready to be wrapped in an APP1 segment.
+fn build_merged_exif_bytes(
+    jpeg_data: &[u8],
+    tags_to_replace: &[Tag],
+    new_fields: &[Field],
+) -> Result<Vec<u8>, crate::error::AppError> {
+    let mut cursor = Cursor::new(jpeg_data);
     let exif_reader = exif::Reader::new();
 
-    // Collect existing fields that won't be overwritten
     let mut kept_fields: Vec<Field> = Vec::new();
-
-    match exif_reader.read_from_container(&mut bufreader) {
+    match exif_reader.read_from_container(&mut cursor) {
         Ok(existing_exif) => {
             kept_fields = existing_exif
                 .fields()
@@ -216,8 +210,7 @@ pub fn write_exif_fields_jpg(
     for field in &kept_fields {
         merged_writer.push_field(field);
     }
-
-    for field in &new_fields {
+    for field in new_fields {
         merged_writer.push_field(field);
     }
 
@@ -226,25 +219,224 @@ pub fn write_exif_fields_jpg(
         .write(&mut buf, false)
         .map_err(|e| crate::error::AppError::Exif(format!("Failed to write EXIF: {}", e)))?;
 
-    let exif_data = buf.into_inner();
-    write_jpeg_with_exif(file_path, &original_data, &exif_data)?;
+    Ok(buf.into_inner())
+}
+
+/// Replace or insert the APP1 EXIF segment in JPEG data, returning new JPEG bytes.
+fn build_jpeg_with_exif(
+    original_jpeg: &[u8],
+    exif_data: &[u8],
+) -> Result<Vec<u8>, crate::error::AppError> {
+    const SOI: [u8; 2] = [0xFF, 0xD8];
+    const APP1: u8 = 0xE1;
+    const EXIF_HEADER: [u8; 6] = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // "Exif\0\0"
+
+    if original_jpeg.len() < 2 || original_jpeg[0..2] != SOI {
+        return Err(crate::error::AppError::General(
+            "Not a valid JPEG file".to_string(),
+        ));
+    }
+
+    let mut output = Vec::new();
+    output.extend_from_slice(&SOI);
+
+    // Build the new APP1 EXIF segment
+    let exif_segment_size = 2 + 6 + exif_data.len(); // size field (2) + "Exif\0\0" (6) + data
+    if exif_segment_size > 0xFFFF {
+        return Err(crate::error::AppError::General(
+            "EXIF data too large".to_string(),
+        ));
+    }
+
+    output.push(0xFF);
+    output.push(APP1);
+    output.extend_from_slice(&(exif_segment_size as u16).to_be_bytes());
+    output.extend_from_slice(&EXIF_HEADER);
+    output.extend_from_slice(exif_data);
+
+    // Parse the rest of the original JPEG, skipping existing EXIF APP1 segment
+    let mut pos = 2; // Skip SOI
+
+    while pos + 1 < original_jpeg.len() {
+        if original_jpeg[pos] != 0xFF {
+            break;
+        }
+
+        let marker = original_jpeg[pos + 1];
+        pos += 2;
+
+        // Skip existing APP1 EXIF segment
+        if marker == APP1 && pos + 2 <= original_jpeg.len() {
+            let seg_size =
+                u16::from_be_bytes([original_jpeg[pos], original_jpeg[pos + 1]]) as usize;
+
+            if pos + seg_size <= original_jpeg.len()
+                && seg_size >= 8
+                && original_jpeg[pos + 2..pos + 8] == EXIF_HEADER
+            {
+                pos += seg_size;
+                continue;
+            }
+        }
+
+        // Copy other segments as-is
+        if marker == 0xD8 || marker == 0xD9 {
+            // SOI / EOI -- no size field
+            output.push(0xFF);
+            output.push(marker);
+        } else if (0xD0..=0xD7).contains(&marker) {
+            // RST markers -- no size field
+            output.push(0xFF);
+            output.push(marker);
+        } else if pos + 2 <= original_jpeg.len() {
+            let seg_size =
+                u16::from_be_bytes([original_jpeg[pos], original_jpeg[pos + 1]]) as usize;
+            if pos + seg_size <= original_jpeg.len() {
+                output.push(0xFF);
+                output.push(marker);
+                output.extend_from_slice(&original_jpeg[pos..pos + seg_size]);
+                pos += seg_size;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if pos < original_jpeg.len() {
+        output.extend_from_slice(&original_jpeg[pos..]);
+    }
+
+    Ok(output)
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Write multiple EXIF fields to a JPEG file.
+///
+/// Uses a merge strategy: reads existing EXIF, replaces the requested fields,
+/// and writes the result back. Fields set to `None` in the request are left
+/// unchanged (their existing values are preserved).
+pub fn write_exif_fields_jpg(
+    file_path: &Path,
+    req: &ExifWriteRequest,
+) -> Result<(), crate::error::AppError> {
+    if !file_path.exists() {
+        return Err(crate::error::AppError::General(format!(
+            "File not found: {}",
+            file_path.display()
+        )));
+    }
+
+    let (tags_to_replace, new_fields) = build_exif_changes(req)?;
+    let original_data = std::fs::read(file_path)?;
+    let exif_bytes = build_merged_exif_bytes(&original_data, &tags_to_replace, &new_fields)?;
+    let new_jpeg = build_jpeg_with_exif(&original_data, &exif_bytes)?;
+    std::fs::write(file_path, &new_jpeg)?;
 
     Ok(())
 }
 
 /// Write multiple EXIF fields to a RAF (Fujifilm RAW) file.
 ///
-/// This is a placeholder for future RAF write support.
-/// Currently returns an error indicating the feature is not yet implemented.
+/// RAF files contain an embedded JPEG with EXIF data. This function:
+/// 1. Extracts the embedded JPEG from the RAF container
+/// 2. Modifies its EXIF using the same merge strategy as JPEG
+/// 3. Reconstructs the RAF file with the updated JPEG and adjusted header offsets
 pub fn write_exif_fields_raf(
     file_path: &Path,
-    _req: &ExifWriteRequest,
+    req: &ExifWriteRequest,
 ) -> Result<(), crate::error::AppError> {
-    Err(crate::error::AppError::General(format!(
-        "Writing EXIF to RAF files is not yet implemented: {}",
-        file_path.display()
-    )))
+    if !file_path.exists() {
+        return Err(crate::error::AppError::General(format!(
+            "File not found: {}",
+            file_path.display()
+        )));
+    }
+
+    let raf_data = std::fs::read(file_path)?;
+
+    // Validate RAF magic
+    if raf_data.len() < 108 {
+        return Err(crate::error::AppError::General(
+            "File too small to be a valid RAF file".to_string(),
+        ));
+    }
+    if !raf_data[0..16].starts_with(b"FUJIFILMCCD-RAW") {
+        return Err(crate::error::AppError::General(
+            "Not a valid RAF file: missing FUJIFILMCCD-RAW magic".to_string(),
+        ));
+    }
+
+    // Parse header offsets (Big Endian i32 at fixed positions)
+    let jpg_offset = BigEndian::read_i32(&raf_data[84..88]) as usize;
+    let jpg_length = BigEndian::read_i32(&raf_data[88..92]) as usize;
+    let cfa_header_offset = BigEndian::read_i32(&raf_data[92..96]);
+    let cfa_offset = BigEndian::read_i32(&raf_data[100..104]);
+
+    // Validate JPEG region is within file bounds
+    if jpg_offset + jpg_length > raf_data.len() {
+        return Err(crate::error::AppError::General(
+            "RAF header indicates JPEG region beyond file bounds".to_string(),
+        ));
+    }
+    let embedded_jpeg = &raf_data[jpg_offset..jpg_offset + jpg_length];
+    if embedded_jpeg.len() < 2 || embedded_jpeg[0] != 0xFF || embedded_jpeg[1] != 0xD8 {
+        return Err(crate::error::AppError::General(
+            "Embedded JPEG in RAF does not start with SOI marker".to_string(),
+        ));
+    }
+
+    // Modify EXIF in the embedded JPEG using shared helpers
+    let (tags_to_replace, new_fields) = build_exif_changes(req)?;
+    let exif_bytes = build_merged_exif_bytes(embedded_jpeg, &tags_to_replace, &new_fields)?;
+    let new_jpeg = build_jpeg_with_exif(embedded_jpeg, &exif_bytes)?;
+
+    // Reconstruct the RAF file
+    let size_diff = new_jpeg.len() as i64 - jpg_length as i64;
+
+    let mut output = Vec::with_capacity((raf_data.len() as i64 + size_diff) as usize);
+    // Everything before the JPEG (header + gap)
+    output.extend_from_slice(&raf_data[..jpg_offset]);
+    // New JPEG data
+    output.extend_from_slice(&new_jpeg);
+    // Everything after the old JPEG (CFA header + CFA data + trailing)
+    output.extend_from_slice(&raf_data[jpg_offset + jpg_length..]);
+
+    // Patch header: update jpg_length
+    BigEndian::write_i32(&mut output[88..92], new_jpeg.len() as i32);
+
+    // Adjust CFA offsets if they come after the JPEG section
+    if size_diff != 0 {
+        if cfa_header_offset as usize > jpg_offset {
+            let new_val = cfa_header_offset as i64 + size_diff;
+            if new_val < 0 {
+                return Err(crate::error::AppError::General(
+                    "EXIF modification would corrupt RAF structure: CFA header offset underflow"
+                        .to_string(),
+                ));
+            }
+            BigEndian::write_i32(&mut output[92..96], new_val as i32);
+        }
+        if cfa_offset as usize > jpg_offset {
+            let new_val = cfa_offset as i64 + size_diff;
+            if new_val < 0 {
+                return Err(crate::error::AppError::General(
+                    "EXIF modification would corrupt RAF structure: CFA data offset underflow"
+                        .to_string(),
+                ));
+            }
+            BigEndian::write_i32(&mut output[100..104], new_val as i32);
+        }
+    }
+
+    std::fs::write(file_path, &output)?;
+
+    Ok(())
 }
+
+// ── Utility functions ─────────────────────────────────────────────────────────
 
 /// Parse a shutter speed string into (numerator, denominator).
 ///
@@ -292,103 +484,6 @@ fn decimal_degrees_to_dms(decimal: f64) -> Vec<Rational> {
     ]
 }
 
-/// Write EXIF data into a JPEG file by replacing or adding the APP1 EXIF segment.
-///
-/// This function handles JPEG marker structure properly:
-/// - Preserves SOI (Start of Image) marker
-/// - Replaces existing APP1 EXIF segment or inserts new one after SOI
-/// - Preserves all other segments and image data
-pub(crate) fn write_jpeg_with_exif(
-    file_path: &Path,
-    original_data: &[u8],
-    exif_data: &[u8],
-) -> Result<(), crate::error::AppError> {
-    const SOI: [u8; 2] = [0xFF, 0xD8];
-    const APP1: u8 = 0xE1;
-    const EXIF_HEADER: [u8; 6] = [0x45, 0x78, 0x69, 0x66, 0x00, 0x00]; // "Exif\0\0"
-
-    if original_data.len() < 2 || original_data[0..2] != SOI {
-        return Err(crate::error::AppError::General(
-            "Not a valid JPEG file".to_string(),
-        ));
-    }
-
-    let mut output = Vec::new();
-    output.extend_from_slice(&SOI);
-
-    // Build the new APP1 EXIF segment
-    let exif_segment_size = 2 + 6 + exif_data.len(); // size field (2) + "Exif\0\0" (6) + data
-    if exif_segment_size > 0xFFFF {
-        return Err(crate::error::AppError::General(
-            "EXIF data too large".to_string(),
-        ));
-    }
-
-    output.push(0xFF);
-    output.push(APP1);
-    output.extend_from_slice(&(exif_segment_size as u16).to_be_bytes());
-    output.extend_from_slice(&EXIF_HEADER);
-    output.extend_from_slice(exif_data);
-
-    // Parse the rest of the original JPEG, skipping existing EXIF APP1 segment
-    let mut pos = 2; // Skip SOI
-
-    while pos + 1 < original_data.len() {
-        if original_data[pos] != 0xFF {
-            break;
-        }
-
-        let marker = original_data[pos + 1];
-        pos += 2;
-
-        // Skip existing APP1 EXIF segment
-        if marker == APP1 && pos + 2 <= original_data.len() {
-            let seg_size =
-                u16::from_be_bytes([original_data[pos], original_data[pos + 1]]) as usize;
-
-            if pos + seg_size <= original_data.len()
-                && seg_size >= 8
-                && original_data[pos + 2..pos + 8] == EXIF_HEADER
-            {
-                pos += seg_size;
-                continue;
-            }
-        }
-
-        // Copy other segments as-is
-        if marker == 0xD8 || marker == 0xD9 {
-            // SOI / EOI -- no size field
-            output.push(0xFF);
-            output.push(marker);
-        } else if (0xD0..=0xD7).contains(&marker) {
-            // RST markers -- no size field
-            output.push(0xFF);
-            output.push(marker);
-        } else if pos + 2 <= original_data.len() {
-            let seg_size =
-                u16::from_be_bytes([original_data[pos], original_data[pos + 1]]) as usize;
-            if pos + seg_size <= original_data.len() {
-                output.push(0xFF);
-                output.push(marker);
-                output.extend_from_slice(&original_data[pos..pos + seg_size]);
-                pos += seg_size;
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    if pos < original_data.len() {
-        output.extend_from_slice(&original_data[pos..]);
-    }
-
-    std::fs::write(file_path, &output)?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,13 +516,21 @@ mod tests {
 
     // ── Helper: write + read-back verification ────────────────────────────────
 
-    /// Write EXIF fields to a file and read them back.
+    /// Write EXIF fields to a JPEG file and read them back.
     fn write_and_readback(path: &Path, req: &ExifWriteRequest) -> crate::models::exif::ExifInfo {
         write_exif_fields_jpg(path, req).expect("write_exif_fields_jpg failed");
         read_exif_service::read_exif_jpg(path).expect("read_exif_jpg failed")
     }
 
-    // ── Individual field tests ────────────────────────────────────────────────
+    /// Write EXIF fields to a RAF file and read them back.
+    fn write_and_readback_raf(path: &Path, req: &ExifWriteRequest) -> crate::models::exif::ExifInfo {
+        write_exif_fields_raf(path, req).expect("write_exif_fields_raf failed");
+        read_exif_service::read_exif_raf(path).expect("read_exif_raf failed")
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── JPG tests ─────────────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
 
     #[test]
     fn test_write_and_read_datetime_jpg() {
@@ -695,51 +798,146 @@ mod tests {
         assert!((dms[2].to_f64() - 46.08).abs() < 0.1, "Seconds mismatch: {}", dms[2].to_f64());
     }
 
-    // ── RAF write stub tests ─────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── RAF write tests ───────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
 
     #[test]
-    fn test_write_exif_fields_raf_not_implemented() {
-        let path = project_root().join("test_data").join("sample.RAF");
+    fn test_write_and_read_datetime_raf() {
+        let path = copy_test_file("sample.RAF", "datetime");
         let req = ExifWriteRequest {
+            datetime: Some("2025:01:15 10:30:00".to_string()),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert!(
+            info.datetime.as_ref().map_or(false, |dt| dt.contains("2025") && dt.contains("01") && dt.contains("15")),
+            "DateTime mismatch: {:?}", info.datetime
+        );
+    }
+
+    #[test]
+    fn test_write_and_read_camera_model_raf() {
+        let path = copy_test_file("sample.RAF", "cam_model");
+        let req = ExifWriteRequest {
+            camera_model: Some("TestCamera X100".to_string()),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert_eq!(info.camera_model.as_deref(), Some("TestCamera X100"));
+    }
+
+    #[test]
+    fn test_write_and_read_gps_raf() {
+        let path = copy_test_file("sample.RAF", "gps");
+        let req = ExifWriteRequest {
+            gps_latitude: Some(35.681236),
+            gps_longitude: Some(139.767125),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert!(info.gps_latitude.is_some(), "GPS latitude should be set");
+        assert!(info.gps_longitude.is_some(), "GPS longitude should be set");
+        let lat = info.gps_latitude.unwrap();
+        let lon = info.gps_longitude.unwrap();
+        assert!((lat - 35.681236).abs() < 0.001, "Latitude mismatch: {}", lat);
+        assert!((lon - 139.767125).abs() < 0.001, "Longitude mismatch: {}", lon);
+    }
+
+    #[test]
+    fn test_write_and_read_rating_raf() {
+        let path = copy_test_file("sample.RAF", "rating");
+        let req = ExifWriteRequest {
+            rating: Some(4),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert_eq!(info.rating, Some(4), "Rating should be 4");
+    }
+
+    #[test]
+    fn test_write_and_read_iso_raf() {
+        let path = copy_test_file("sample.RAF", "iso");
+        let req = ExifWriteRequest {
+            iso: Some(800),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert_eq!(info.iso, Some(800), "ISO should be 800");
+    }
+
+    #[test]
+    fn test_write_multiple_fields_raf() {
+        let path = copy_test_file("sample.RAF", "multi");
+        let req = ExifWriteRequest {
+            datetime: Some("2025:06:01 12:00:00".to_string()),
+            camera_model: Some("MultiTest RAF Camera".to_string()),
+            focal_length: Some(35.0),
+            aperture: Some(4.0),
+            iso: Some(200),
+            rating: Some(5),
+            ..Default::default()
+        };
+        let info = write_and_readback_raf(&path, &req);
+        assert!(
+            info.datetime.as_ref().map_or(false, |dt| dt.contains("2025") && dt.contains("06") && dt.contains("01")),
+            "DateTime mismatch: {:?}", info.datetime
+        );
+        assert_eq!(info.camera_model.as_deref(), Some("MultiTest RAF Camera"));
+        assert!(info.focal_length.is_some());
+        assert!(info.aperture.is_some());
+        assert_eq!(info.iso, Some(200));
+        assert_eq!(info.rating, Some(5));
+    }
+
+    #[test]
+    fn test_overwrite_existing_field_raf() {
+        let path = copy_test_file("sample.RAF", "overwrite");
+        // First write
+        let req1 = ExifWriteRequest {
+            camera_model: Some("FirstModel".to_string()),
+            ..Default::default()
+        };
+        let info1 = write_and_readback_raf(&path, &req1);
+        assert_eq!(info1.camera_model.as_deref(), Some("FirstModel"));
+        // Overwrite
+        let req2 = ExifWriteRequest {
+            camera_model: Some("SecondModel".to_string()),
+            ..Default::default()
+        };
+        let info2 = write_and_readback_raf(&path, &req2);
+        assert_eq!(info2.camera_model.as_deref(), Some("SecondModel"));
+    }
+
+    #[test]
+    fn test_raf_structure_preserved() {
+        use crate::services::raw_decoders::raf_decoder::RafDecoder;
+
+        let path = copy_test_file("sample.RAF", "structure");
+        let req = ExifWriteRequest {
+            camera_model: Some("StructureTest".to_string()),
             rating: Some(3),
             ..Default::default()
         };
-        let result = write_exif_fields_raf(&path, &req);
-        assert!(result.is_err(), "RAF write should return an error");
-        let err_msg = result.unwrap_err().to_string();
+        write_exif_fields_raf(&path, &req).expect("write_exif_fields_raf failed");
+
+        // Verify RAF magic is intact
+        let data = fs::read(&path).unwrap();
         assert!(
-            err_msg.contains("not yet implemented") || err_msg.contains("not yet supported"),
-            "Error should mention not implemented: {}",
-            err_msg
+            data[0..16].starts_with(b"FUJIFILMCCD-RAW"),
+            "RAF magic should be preserved after write"
         );
+
+        // Verify RafDecoder can still parse the modified file
+        let decoder = RafDecoder::new(&path).expect("RafDecoder should parse modified RAF");
+        assert!(decoder.get_jpeg_size() > 0, "JPEG data should still be present");
+        assert!(decoder.get_cfa_record_count() > 0, "CFA records should still be present");
     }
 
     #[test]
-    fn test_write_exif_fields_raf_preserves_file() {
-        // Ensure the stub does NOT modify the RAF file
-        let path = copy_test_file("sample.RAF", "write_raf");
-        let original_size = fs::metadata(&path).unwrap().len();
-
-        let req = ExifWriteRequest {
-            camera_model: Some("TestModel".to_string()),
-            ..Default::default()
-        };
-        let result = write_exif_fields_raf(&path, &req);
-        assert!(result.is_err());
-
-        let after_size = fs::metadata(&path).unwrap().len();
-        assert_eq!(
-            original_size, after_size,
-            "RAF file should not be modified by the stub function"
-        );
-    }
-
-    #[test]
-    fn test_write_exif_fields_mixed_with_raf() {
-        // When a batch contains both JPG and RAF paths,
-        // the RAF file should cause an error while JPG files are written successfully.
-        let jpg_path = copy_test_file("sample.jpg", "mixed_raf");
-        let raf_path = copy_test_file("sample.RAF", "mixed_raf");
+    fn test_batch_write_mixed_jpg_raf() {
+        let jpg_path = copy_test_file("sample.jpg", "mixed_ok");
+        let raf_path = copy_test_file("sample.RAF", "mixed_ok");
 
         let paths = vec![
             jpg_path.to_string_lossy().to_string(),
@@ -751,13 +949,34 @@ mod tests {
             ..Default::default()
         };
 
-        let result = crate::services::exif_service::write_exif_fields(&paths, &req);
-        assert!(result.is_err(), "Batch with RAF should fail");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("RAF") || err_msg.contains("raf"),
-            "Error should mention RAF: {}",
-            err_msg
-        );
+        crate::services::exif_service::write_exif_fields(&paths, &req)
+            .expect("batch write with JPG+RAF should succeed");
+
+        // Verify JPG
+        let jpg_info = read_exif_service::read_exif_jpg(Path::new(&paths[0]))
+            .expect("read_exif_jpg failed");
+        assert_eq!(jpg_info.rating, Some(3));
+
+        // Verify RAF
+        let raf_info = read_exif_service::read_exif_raf(Path::new(&paths[1]))
+            .expect("read_exif_raf failed");
+        assert_eq!(raf_info.rating, Some(3));
+    }
+
+    #[test]
+    fn test_rating_validation_raf() {
+        let path = copy_test_file("sample.RAF", "rating_invalid");
+        let original_size = fs::metadata(&path).unwrap().len();
+
+        let req = ExifWriteRequest {
+            rating: Some(6), // invalid: > 5
+            ..Default::default()
+        };
+        let result = write_exif_fields_raf(&path, &req);
+        assert!(result.is_err(), "Rating > 5 should be rejected");
+
+        // Verify file was not modified
+        let after_size = fs::metadata(&path).unwrap().len();
+        assert_eq!(original_size, after_size, "RAF file should not be modified on validation error");
     }
 }

@@ -31,7 +31,7 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
 /// When multiple file paths are provided, they are processed concurrently using
 /// a thread pool sized to the number of available CPU cores.
 ///
-/// Only JPEG files are supported for writing; RAF files will produce an error.
+/// Both JPEG and RAF (Fujifilm RAW) files are supported for writing.
 pub fn write_exif_fields(
     file_paths: &[String],
     req: &ExifWriteRequest,
