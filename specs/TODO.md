@@ -26,6 +26,7 @@
 - [x] 支持gps位置写入
 - [x] raw文件的exif读取是有问题的。
 - [x] exif信息写入支持更多信息，包含光圈、快门、iso、相机、镜头、焦距、拍摄时间
+- [x] Viewer支持放大缩小和拖拽
 
 
 # ui美化
@@ -57,3 +58,8 @@ https://www.reddit.com/r/rust/comments/k1wjix/why_opening_of_images_is_so_slow/
 # exif改造
 
 准备后续迁移到exif-oxide
+
+# raw格式
+
+- [ ] 支持TIFF格式
+- [ ] 支持BMP格式
