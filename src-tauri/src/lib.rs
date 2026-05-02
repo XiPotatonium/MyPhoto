@@ -3,35 +3,44 @@ mod error;
 mod models;
 pub mod services;
 
-use tauri::{Emitter, menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder}};
+use tauri::{Emitter, menu::{MenuItem, MenuItemBuilder, MenuBuilder, SubmenuBuilder}};
 
-fn update_menu_checked(app_handle: &tauri::AppHandle, id: &str, checked: bool) {
-    if let Some(menu) = app_handle.menu() {
-        if let Some(item) = menu.get(id) {
-            if let Some(check_item) = item.as_check_menuitem() {
-                let _ = check_item.set_checked(checked);
-            }
-        }
+fn set_radio_text(items: &[MenuItem<tauri::Wry>], labels: &[&str], selected: usize) {
+    for (i, item) in items.iter().enumerate() {
+        let prefix = if i == selected { "✓ " } else { "  " };
+        let _ = item.set_text(format!("{}{}", prefix, labels[i]));
     }
 }
 
-fn set_sort_field(app_handle: &tauri::AppHandle, field: &str) {
-    update_menu_checked(app_handle, "sort_name", field == "name");
-    update_menu_checked(app_handle, "sort_date", field == "date");
-    update_menu_checked(app_handle, "sort_rating", field == "rating");
-    let _ = app_handle.emit_to("main", "menu-sort-field", field);
+fn set_sort_field(items: &[MenuItem<tauri::Wry>; 3], field: &str) -> usize {
+    let idx = match field {
+        "name" => 0,
+        "date" => 1,
+        "rating" => 2,
+        _ => 0,
+    };
+    set_radio_text(items, &["文件名", "拍摄时间", "星级评分"], idx);
+    idx
 }
 
-fn set_sort_order(app_handle: &tauri::AppHandle, order: &str) {
-    update_menu_checked(app_handle, "sort_asc", order == "asc");
-    update_menu_checked(app_handle, "sort_desc", order == "desc");
-    let _ = app_handle.emit_to("main", "menu-sort-order", order);
+fn set_sort_order(items: &[MenuItem<tauri::Wry>; 2], order: &str) -> usize {
+    let idx = match order {
+        "asc" => 0,
+        "desc" => 1,
+        _ => 0,
+    };
+    set_radio_text(items, &["升序", "降序"], idx);
+    idx
 }
 
-fn set_theme(app_handle: &tauri::AppHandle, theme: &str) {
-    update_menu_checked(app_handle, "theme_light", theme == "light");
-    update_menu_checked(app_handle, "theme_dark", theme == "dark");
-    let _ = app_handle.emit_to("main", "menu-theme", theme);
+fn set_theme(items: &[MenuItem<tauri::Wry>; 2], theme: &str) -> usize {
+    let idx = match theme {
+        "light" => 0,
+        "dark" => 1,
+        _ => 0,
+    };
+    set_radio_text(items, &["浅色", "深色"], idx);
+    idx
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -43,26 +52,24 @@ pub fn run() {
                 .quit()
                 .build()?;
 
-            let sort_name = CheckMenuItemBuilder::new("文件名")
+            let sort_name = MenuItemBuilder::new("✓ 文件名")
                 .id("sort_name")
-                .checked(true)
                 .build(app)?;
-            let sort_date = CheckMenuItemBuilder::new("拍摄时间")
+            let sort_date = MenuItemBuilder::new("  拍摄时间")
                 .id("sort_date")
-                .checked(false)
                 .build(app)?;
-            let sort_rating = CheckMenuItemBuilder::new("星级评分")
+            let sort_rating = MenuItemBuilder::new("  星级评分")
                 .id("sort_rating")
-                .checked(false)
                 .build(app)?;
-            let sort_asc = CheckMenuItemBuilder::new("升序")
+            let sort_asc = MenuItemBuilder::new("✓ 升序")
                 .id("sort_asc")
-                .checked(true)
                 .build(app)?;
-            let sort_desc = CheckMenuItemBuilder::new("降序")
+            let sort_desc = MenuItemBuilder::new("  降序")
                 .id("sort_desc")
-                .checked(false)
                 .build(app)?;
+
+            let sort_field_items = [sort_name.clone(), sort_date.clone(), sort_rating.clone()];
+            let sort_order_items = [sort_asc.clone(), sort_desc.clone()];
 
             let sort_menu = SubmenuBuilder::new(app, "排序")
                 .item(&sort_name)
@@ -73,14 +80,14 @@ pub fn run() {
                 .item(&sort_desc)
                 .build()?;
 
-            let theme_light = CheckMenuItemBuilder::new("浅色")
+            let theme_light = MenuItemBuilder::new("✓ 浅色")
                 .id("theme_light")
-                .checked(true)
                 .build(app)?;
-            let theme_dark = CheckMenuItemBuilder::new("深色")
+            let theme_dark = MenuItemBuilder::new("  深色")
                 .id("theme_dark")
-                .checked(false)
                 .build(app)?;
+
+            let theme_items = [theme_light.clone(), theme_dark.clone()];
 
             let theme_menu = SubmenuBuilder::new(app, "主题")
                 .item(&theme_light)
@@ -99,15 +106,41 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
+            // Clone items into the closure for direct updates
+            let sort_field_items = sort_field_items;
+            let sort_order_items = sort_order_items;
+            let theme_items = theme_items;
+
             app.on_menu_event(move |app_handle, event| {
                 match event.id().0.as_str() {
-                    "sort_name" => set_sort_field(app_handle, "name"),
-                    "sort_date" => set_sort_field(app_handle, "date"),
-                    "sort_rating" => set_sort_field(app_handle, "rating"),
-                    "sort_asc" => set_sort_order(app_handle, "asc"),
-                    "sort_desc" => set_sort_order(app_handle, "desc"),
-                    "theme_light" => set_theme(app_handle, "light"),
-                    "theme_dark" => set_theme(app_handle, "dark"),
+                    "sort_name" => {
+                        set_sort_field(&sort_field_items, "name");
+                        let _ = app_handle.emit_to("main", "menu-sort-field", "name");
+                    }
+                    "sort_date" => {
+                        set_sort_field(&sort_field_items, "date");
+                        let _ = app_handle.emit_to("main", "menu-sort-field", "date");
+                    }
+                    "sort_rating" => {
+                        set_sort_field(&sort_field_items, "rating");
+                        let _ = app_handle.emit_to("main", "menu-sort-field", "rating");
+                    }
+                    "sort_asc" => {
+                        set_sort_order(&sort_order_items, "asc");
+                        let _ = app_handle.emit_to("main", "menu-sort-order", "asc");
+                    }
+                    "sort_desc" => {
+                        set_sort_order(&sort_order_items, "desc");
+                        let _ = app_handle.emit_to("main", "menu-sort-order", "desc");
+                    }
+                    "theme_light" => {
+                        set_theme(&theme_items, "light");
+                        let _ = app_handle.emit_to("main", "menu-theme", "light");
+                    }
+                    "theme_dark" => {
+                        set_theme(&theme_items, "dark");
+                        let _ = app_handle.emit_to("main", "menu-theme", "dark");
+                    }
                     _ => {}
                 }
             });
