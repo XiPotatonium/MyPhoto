@@ -28,6 +28,30 @@ pub fn read_exif_raf(file_path: &Path) -> Result<ExifInfo, crate::error::AppErro
     parse_exif_data(&exif_data)
 }
 
+/// Read EXIF info from an Adobe DNG raw file.
+pub fn read_exif_dng(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
+    use crate::services::raw_decoders::dng_decoder::DngDecoder;
+
+    let decoder = DngDecoder::new(file_path)
+        .map_err(|e| crate::error::AppError::General(format!("Failed to decode DNG: {}", e)))?;
+
+    if !decoder.preview.data.is_empty() {
+        // 尝试从预览图中读取EXIF
+        let mut cursor = std::io::Cursor::new(&decoder.preview.data);
+        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cursor) {
+            return parse_exif_data(&exif_data);
+        }
+    }
+
+    // 回退：直接从DNG文件读取EXIF（DNG基于TIFF格式，exif库可直接解析）
+    let file = File::open(file_path)?;
+    let mut reader = BufReader::new(&file);
+    let exif_data = exif::Reader::new()
+        .read_from_container(&mut reader)
+        .map_err(|e| crate::error::AppError::Exif(e.to_string()))?;
+    parse_exif_data(&exif_data)
+}
+
 /// Extract [`ExifInfo`] from already-parsed EXIF data.
 /// Shared by [`read_exif_jpg`] and [`read_exif_raf`].
 pub(crate) fn parse_exif_data(exif_data: &exif::Exif) -> Result<ExifInfo, crate::error::AppError> {

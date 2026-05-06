@@ -19,6 +19,9 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
 
     match ext.as_deref() {
         Some("raf") => read_exif_service::read_exif_raf(file_path),
+        Some("dng") => read_exif_service::read_exif_dng(file_path),
+        Some("tif") | Some("tiff") => read_exif_service::read_exif_jpg(file_path),
+        Some("bmp") => Ok(ExifInfo::default()),
         _ => read_exif_service::read_exif_jpg(file_path),
     }
 }
@@ -36,20 +39,28 @@ pub fn write_exif_fields(
     file_paths: &[String],
     req: &ExifWriteRequest,
 ) -> Result<(), crate::error::AppError> {
-    // Separate RAF and non-RAF paths
+    // Separate paths by format type
     let mut jpg_paths: Vec<&String> = Vec::new();
     let mut raf_paths: Vec<&String> = Vec::new();
+    let mut unsupported_write_paths: Vec<&String> = Vec::new();
 
     for p in file_paths {
         let ext = Path::new(p)
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.to_lowercase());
-        if ext.as_deref() == Some("raf") {
-            raf_paths.push(p);
-        } else {
-            jpg_paths.push(p);
+        match ext.as_deref() {
+            Some("raf") => raf_paths.push(p),
+            Some("tif") | Some("tiff") | Some("bmp") | Some("dng") => {
+                unsupported_write_paths.push(p);
+            }
+            _ => jpg_paths.push(p),
         }
+    }
+
+    // Log unsupported formats (skip silently for now)
+    for path in &unsupported_write_paths {
+        eprintln!("EXIF write not supported for format: {}", path);
     }
 
     // Process RAF files (currently returns NotImplemented error)

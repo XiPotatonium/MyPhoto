@@ -56,7 +56,7 @@ impl ImageCache {
                     // 缓存有效
                     stats.hits += 1;
                     let duration = start.elapsed();
-                    println!(
+                    eprintln!(
                         "[ImageCache] HIT: {} | 耗时: {:?}",
                         path_str, duration
                     );
@@ -84,7 +84,7 @@ impl ImageCache {
         cache.put(path.to_path_buf(), entry);
 
         let duration = start.elapsed();
-        println!(
+        eprintln!(
             "[ImageCache] MISS: {} | 耗时: {:?}",
             path_str, duration
         );

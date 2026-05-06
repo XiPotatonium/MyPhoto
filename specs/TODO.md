@@ -61,5 +61,9 @@ https://www.reddit.com/r/rust/comments/k1wjix/why_opening_of_images_is_so_slow/
 
 # raw格式
 
-- [ ] 支持TIFF格式
-- [ ] 支持BMP格式
+- [x] 支持tiff格式读取
+- [x] 支持gmp格式读取
+- [x] 支持dng格式读取
+- [ ] 支持tiff格式读写exif
+- [ ] 支持bmp格式读写exif
+- [ ] 支持dng格式读写exif
