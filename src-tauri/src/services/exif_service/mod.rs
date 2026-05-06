@@ -1,5 +1,9 @@
-mod read_exif_service;
-mod write_exif_service;
+mod common;
+pub(crate) mod jpg;
+pub(crate) mod raf;
+pub(crate) mod tiff;
+pub(crate) mod dng;
+pub(crate) mod bmp;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -18,11 +22,11 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
         .map(|e| e.to_lowercase());
 
     match ext.as_deref() {
-        Some("raf") => read_exif_service::read_exif_raf(file_path),
-        Some("dng") => read_exif_service::read_exif_dng(file_path),
-        Some("tif") | Some("tiff") => read_exif_service::read_exif_jpg(file_path),
-        Some("bmp") => Ok(ExifInfo::default()),
-        _ => read_exif_service::read_exif_jpg(file_path),
+        Some("raf") => raf::read_exif_raf(file_path),
+        Some("dng") => dng::read_exif_dng(file_path),
+        Some("tif") | Some("tiff") => tiff::read_exif_tiff(file_path),
+        Some("bmp") => bmp::read_exif_bmp(file_path),
+        _ => jpg::read_exif_jpg(file_path),
     }
 }
 
@@ -34,7 +38,8 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
 /// When multiple file paths are provided, they are processed concurrently using
 /// a thread pool sized to the number of available CPU cores.
 ///
-/// Both JPEG and RAF (Fujifilm RAW) files are supported for writing.
+/// Supported formats: JPEG, RAF, DNG, TIFF.
+/// BMP format does not support EXIF and will return an error.
 pub fn write_exif_fields(
     file_paths: &[String],
     req: &ExifWriteRequest,
@@ -42,6 +47,8 @@ pub fn write_exif_fields(
     // Separate paths by format type
     let mut jpg_paths: Vec<&String> = Vec::new();
     let mut raf_paths: Vec<&String> = Vec::new();
+    let mut tiff_paths: Vec<&String> = Vec::new();
+    let mut dng_paths: Vec<&String> = Vec::new();
     let mut unsupported_write_paths: Vec<&String> = Vec::new();
 
     for p in file_paths {
@@ -51,22 +58,37 @@ pub fn write_exif_fields(
             .map(|e| e.to_lowercase());
         match ext.as_deref() {
             Some("raf") => raf_paths.push(p),
-            Some("tif") | Some("tiff") | Some("bmp") | Some("dng") => {
-                unsupported_write_paths.push(p);
-            }
+            Some("tif") | Some("tiff") => tiff_paths.push(p),
+            Some("dng") => dng_paths.push(p),
+            Some("bmp") => unsupported_write_paths.push(p),
             _ => jpg_paths.push(p),
         }
     }
 
-    // Log unsupported formats (skip silently for now)
-    for path in &unsupported_write_paths {
-        eprintln!("EXIF write not supported for format: {}", path);
+    // BMP does not support EXIF write
+    if !unsupported_write_paths.is_empty() {
+        return Err(crate::error::AppError::General(format!(
+            "EXIF write not supported for BMP format: {}",
+            unsupported_write_paths.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        )));
     }
 
-    // Process RAF files (currently returns NotImplemented error)
+    // Process RAF files
     for raf_path in &raf_paths {
         let path = Path::new(raf_path.as_str());
-        write_exif_service::write_exif_fields_raf(path, req)?;
+        raf::write_exif_fields_raf(path, req)?;
+    }
+
+    // Process TIFF files
+    for tiff_path in &tiff_paths {
+        let path = Path::new(tiff_path.as_str());
+        tiff::write_exif_fields_tiff(path, req)?;
+    }
+
+    // Process DNG files
+    for dng_path in &dng_paths {
+        let path = Path::new(dng_path.as_str());
+        dng::write_exif_fields_dng(path, req)?;
     }
 
     if jpg_paths.is_empty() {
@@ -76,7 +98,7 @@ pub fn write_exif_fields(
     if jpg_paths.len() == 1 {
         // Single file — skip thread overhead
         let path = Path::new(jpg_paths[0].as_str());
-        return write_exif_service::write_exif_fields_jpg(path, req);
+        return jpg::write_exif_fields_jpg(path, req);
     }
 
     let num_threads = thread::available_parallelism()
@@ -96,7 +118,7 @@ pub fn write_exif_fields(
         let handle = thread::spawn(move || {
             for file_path_str in chunk_owned {
                 let path = Path::new(&file_path_str);
-                if let Err(e) = write_exif_service::write_exif_fields_jpg(path, &req_clone) {
+                if let Err(e) = jpg::write_exif_fields_jpg(path, &req_clone) {
                     let mut errs = errors_clone.lock().unwrap();
                     errs.push(format!("{}: {}", file_path_str, e));
                 }

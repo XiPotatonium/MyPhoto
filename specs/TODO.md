@@ -9,6 +9,9 @@
 - [x] write_rating并没有实现
 - [x] 文件夹如果没有子文件夹，会不显示。前端没有显示根目录。
 - [x] 删除照片没有触发
+- [ ] 有时候打开会呈现黑色主题
+- [ ] windows上有时候点击照片到view模式后会看不到照片，放大比例是0%
+- [ ] exif信息有时候不包括长宽比，但是实际上长宽比不必依赖exif
 
 ## 前端图片信息大更新
 
@@ -64,6 +67,6 @@ https://www.reddit.com/r/rust/comments/k1wjix/why_opening_of_images_is_so_slow/
 - [x] 支持tiff格式读取
 - [x] 支持gmp格式读取
 - [x] 支持dng格式读取
-- [ ] 支持tiff格式读写exif
-- [ ] 支持bmp格式读写exif
-- [ ] 支持dng格式读写exif
+- [x] 支持tiff格式读写exif
+- [x] 支持bmp格式读写exif
+- [x] 支持dng格式读写exif
