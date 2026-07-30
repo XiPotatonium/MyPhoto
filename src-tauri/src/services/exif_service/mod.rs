@@ -47,6 +47,14 @@ pub fn read_exif(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
         }
     }
 
+    // Populate file creation time from filesystem metadata
+    if let Ok(metadata) = std::fs::metadata(file_path) {
+        if let Ok(created) = metadata.created() {
+            let datetime = chrono::DateTime::<chrono::Local>::from(created);
+            info.file_created_time = Some(datetime.format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+    }
+
     Ok(info)
 }
 

@@ -16,7 +16,6 @@ import {
   FieldLabel,
   FieldError,
 } from '../ui/field'
-import type { ExifInfo } from '../../types/exif'
 
 export interface ExifWriteRequest {
   datetime?: string | null
@@ -161,19 +160,14 @@ function reset() {
   loading.value = false
 }
 
-/** Pre-fill the form from existing ExifInfo (for future use). */
-function initWithExif(_exifInfo: ExifInfo) {
-  // Reserved for future pre-fill support
-}
-
-defineExpose({ loading, reset, initWithExif })
+defineExpose({ loading, reset })
 </script>
 
 <template>
   <Dialog :open="visible" @update:open="(open) => !open && handleCancel()">
     <DialogContent
       :show-close-button="false"
-      class="sm:max-w-[680px] p-0 overflow-hidden"
+      class="sm:max-w-[680px] p-0 overflow-hidden exif-dialog"
     >
       <!-- Header -->
       <DialogHeader class="px-6 pt-5 pb-4">

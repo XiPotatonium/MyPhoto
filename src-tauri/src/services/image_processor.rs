@@ -187,7 +187,7 @@ pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
                     group.exif_info = Some(exif);
                 }
                 Err(e) => {
-                    eprintln!("Failed to read EXIF for {}: {}", path_str, e);
+                    log::debug!("Failed to read EXIF for {}: {}", path_str, e);
                     group.exif_info = None;
                 }
             }

@@ -12,4 +12,6 @@ export interface ExifInfo {
   rating: number | null
   imageWidth: number | null
   imageHeight: number | null
+  orientation: number | null
+  fileCreatedTime: string | null
 }

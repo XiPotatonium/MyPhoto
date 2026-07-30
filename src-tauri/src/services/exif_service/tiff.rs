@@ -239,7 +239,7 @@ pub fn write_exif_fields_tiff(
         common::write_u32(&mut data, 4, new_ifd0_offset, bo);
     }
 
-    std::fs::write(file_path, &data)?;
+    common::atomic_write(file_path, &data)?;
     Ok(())
 }
 
@@ -313,22 +313,28 @@ fn encode_short_inline(val: u16, bo: TiffByteOrder) -> u32 {
 }
 
 /// Encode up to 4 bytes for inline storage.
-fn encode_bytes_inline(bytes: &[u8], _bo: TiffByteOrder) -> u32 {
+fn encode_bytes_inline(bytes: &[u8], bo: TiffByteOrder) -> u32 {
     let mut val = [0u8; 4];
     for (i, &b) in bytes.iter().take(4).enumerate() {
         val[i] = b;
     }
-    u32::from_le_bytes(val)
+    match bo {
+        TiffByteOrder::LittleEndian => u32::from_le_bytes(val),
+        TiffByteOrder::BigEndian => u32::from_be_bytes(val),
+    }
 }
 
 /// Encode a short ASCII string (<=4 bytes including null) for inline storage.
-fn encode_ascii_inline(s: &str, _bo: TiffByteOrder) -> u32 {
+fn encode_ascii_inline(s: &str, bo: TiffByteOrder) -> u32 {
     let bytes = s.as_bytes();
     let mut val = [0u8; 4];
     for (i, &b) in bytes.iter().take(4).enumerate() {
         val[i] = b;
     }
-    u32::from_le_bytes(val)
+    match bo {
+        TiffByteOrder::LittleEndian => u32::from_le_bytes(val),
+        TiffByteOrder::BigEndian => u32::from_be_bytes(val),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

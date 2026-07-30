@@ -182,8 +182,6 @@ impl PixelData {
 /// BMP文件解码器主结构
 #[derive(Debug)]
 pub struct BmpDecoder {
-    /// 文件路径
-    pub filename: String,
     /// 文件头
     pub file_header: BmpFileHeader,
     /// 信息头
@@ -195,8 +193,6 @@ pub struct BmpDecoder {
 impl BmpDecoder {
     /// 创建新的BMP解码器实例
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let filename_str = filename.as_ref().to_string_lossy().to_string();
-
         // 解析文件头
         let file_header = BmpFileHeader::parse(&filename)?;
 
@@ -207,7 +203,6 @@ impl BmpDecoder {
         let pixel_data = PixelData::extract(&filename, &file_header, &info_header)?;
 
         Ok(BmpDecoder {
-            filename: filename_str,
             file_header,
             info_header,
             pixel_data,
@@ -268,9 +263,9 @@ impl BmpDecoder {
 
     /// 获取分辨率信息（DPI）
     pub fn get_resolution_dpi(&self) -> (f64, f64) {
-        // 像素/米 转换为 DPI (1英寸 = 0.0254米)
-        let x_dpi = self.info_header.x_pixels_per_meter as f64 * 0.0254;
-        let y_dpi = self.info_header.y_pixels_per_meter as f64 * 0.0254;
+        // 像素/米 转换为 DPI (1英寸 = 0.0254米, 1米 = 39.3701英寸)
+        let x_dpi = self.info_header.x_pixels_per_meter as f64 / 39.3701;
+        let y_dpi = self.info_header.y_pixels_per_meter as f64 / 39.3701;
         (x_dpi, y_dpi)
     }
 

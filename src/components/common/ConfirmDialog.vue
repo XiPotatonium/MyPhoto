@@ -33,7 +33,7 @@ function handleOpenChange(open: boolean) {
   <Dialog :open="visible" @update:open="handleOpenChange">
     <DialogContent
       :show-close-button="false"
-      class="sm:max-w-[440px] p-0 overflow-hidden"
+      class="sm:max-w-[440px] p-0 overflow-hidden confirm-dialog"
     >
       <!-- Header -->
       <DialogHeader class="px-6 pt-6 pb-4 flex flex-col gap-2">

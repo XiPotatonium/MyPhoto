@@ -1,9 +1,21 @@
 use std::io::Cursor;
+use std::path::Path;
 
 use exif::experimental::Writer as ExifWriter;
 use exif::{Context, Field, In, Rational, Tag, Value};
 
 use crate::models::exif::{ExifInfo, ExifWriteRequest};
+
+// ── Atomic Write Helper ──────────────────────────────────────────────────────
+
+/// Write data to a file atomically by first writing to a temporary file
+/// in the same directory, then renaming it over the target path.
+/// This prevents file corruption if the process is interrupted mid-write.
+pub fn atomic_write(file_path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp_path = file_path.with_extension("tmp");
+    std::fs::write(&tmp_path, data)?;
+    std::fs::rename(&tmp_path, file_path)
+}
 
 // ── EXIF Read Helpers ─────────────────────────────────────────────────────────
 
@@ -133,6 +145,13 @@ pub(super) fn parse_exif_data(exif_data: &exif::Exif) -> Result<ExifInfo, crate:
             info.image_height = v.first().copied();
         } else if let exif::Value::Short(ref v) = field.value {
             info.image_height = v.first().map(|&x| x as u32);
+        }
+    }
+
+    // Orientation
+    if let Some(field) = exif_data.get_field(exif::Tag::Orientation, exif::In::PRIMARY) {
+        if let exif::Value::Short(ref v) = field.value {
+            info.orientation = v.first().copied();
         }
     }
 

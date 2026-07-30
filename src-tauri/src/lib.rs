@@ -1,7 +1,7 @@
 mod commands;
 mod error;
 mod models;
-pub mod services;
+mod services;
 
 use tauri::{Emitter, menu::{MenuItem, MenuItemBuilder, MenuBuilder, SubmenuBuilder}};
 
@@ -105,11 +105,6 @@ pub fn run() {
                 .build()?;
 
             app.set_menu(menu)?;
-
-            // Clone items into the closure for direct updates
-            let sort_field_items = sort_field_items;
-            let sort_order_items = sort_order_items;
-            let theme_items = theme_items;
 
             app.on_menu_event(move |app_handle, event| {
                 match event.id().0.as_str() {

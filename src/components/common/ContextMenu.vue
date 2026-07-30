@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onBeforeUnmount, watch } from 'vue'
 
 export interface MenuItemDef {
   label: string
@@ -55,11 +55,15 @@ watch(() => [props.x, props.y, props.visible], () => {
   adjustedPosition.value = { x: Math.max(8, newX), y: Math.max(8, newY) }
 }, { immediate: true })
 
-onMounted(() => {
-  document.addEventListener('mousedown', onClickOutside)
+watch(() => props.visible, (isVisible) => {
+  if (isVisible) {
+    document.addEventListener('mousedown', onClickOutside)
+  } else {
+    document.removeEventListener('mousedown', onClickOutside)
+  }
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onClickOutside)
 })
 </script>

@@ -14,13 +14,18 @@ import FormatTabBar from './components/viewer/FormatTabBar.vue'
 import ExifDisplay from './components/info/ExifDisplay.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
 
-async function writeRating(image: ImageGroup, rating: number) {
+async function writeRating(image: ImageGroup, rating: number): Promise<boolean> {
   const filePath = image.jpgPath || image.rawPath
-  if (!filePath) return
+  if (!filePath) return false
   try {
     await invoke('write_rating', { filePath, rating })
+    // 写入成功后，重新读取 EXIF 并更新 image.exifInfo
+    const updatedExif = await invoke<import('./types/exif').ExifInfo>('read_exif', { filePath })
+    image.exifInfo = updatedExif
+    return true
   } catch (e) {
     console.error('Failed to write rating:', e)
+    return false
   }
 }
 
@@ -59,8 +64,13 @@ function onKeyDown(e: KeyboardEvent) {
     e.preventDefault()
     const rating = parseInt(e.key)
     const image = appState.state.currentImage
-    writeRating(image, rating)
+    const oldRating = image.exifInfo?.rating ?? 0
     imageBrowserRef.value?.updateImageRating(rating)
+    writeRating(image, rating).then((success) => {
+      if (!success) {
+        imageBrowserRef.value?.updateImageRating(oldRating)
+      }
+    })
   }
 
   if (e.key === 'Escape' && appState.state.viewMode === 'view') {
@@ -206,9 +216,7 @@ onUnmounted(() => {
             :disabled="appState.state.viewMode !== 'view'"
             @update:format="appState.setCurrentFormat"
           />
-          <ExifDisplay
-            :image="appState.state.currentImage"
-          />
+          <ExifDisplay />
         </RightPanel>
       </div>
     </div>
@@ -217,8 +225,8 @@ onUnmounted(() => {
       :title="appState.state.confirmDialog.title"
       :message="appState.state.confirmDialog.message"
       :options="appState.state.confirmDialog.options"
-      @confirm="(v: string) => { appState.state.confirmDialog.onConfirm(v); appState.hideConfirmDialog() }"
-      @cancel="appState.hideConfirmDialog"
+      @confirm="async (v: string) => { try { await appState.state.confirmDialog.onConfirm(v) } finally { appState.hideConfirmDialog() } }"
+      @cancel="async () => { try { await appState.state.confirmDialog.onCancel?.() } finally { appState.hideConfirmDialog() } }"
     />
   </div>
 </template>

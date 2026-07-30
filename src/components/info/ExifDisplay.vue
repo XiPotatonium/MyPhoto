@@ -1,45 +1,33 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { Camera, Clock, MapPin, Aperture, Gauge, Focus, Ruler, Image as ImageIcon, Loader2 } from 'lucide-vue-next'
-import type { ImageGroup } from '../../types/image'
+import { computed } from 'vue'
+import { Camera, Clock, MapPin, Aperture, Gauge, Focus, Ruler, Image as ImageIcon, Star, RotateCw, Calendar } from 'lucide-vue-next'
 import type { ExifInfo } from '../../types/exif'
-import { formatGps } from '../../utils/formatters'
+import { formatGps, formatDateTime, formatShutterSpeed } from '../../utils/formatters'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card'
+import { useAppState } from '../../stores/appState'
 
-const props = defineProps<{
-  image: ImageGroup | null
-}>()
+const appState = useAppState()
 
-const exif = ref<ExifInfo | null>(null)
-const loading = ref(false)
+const image = computed(() => appState.state.currentImage)
+const exif = computed<ExifInfo | null>(() => {
+  const img = image.value
+  return img?.exifInfo ?? null
+})
 
-async function loadExif() {
-  if (!props.image) {
-    exif.value = null
-    return
-  }
-  const filePath = props.image.jpgPath || props.image.rawPath
-  if (!filePath) {
-    exif.value = null
-    return
-  }
-  loading.value = true
-  try {
-    exif.value = await invoke<ExifInfo>('read_exif', { filePath })
-  } catch (e) {
-    console.error('Failed to read EXIF:', e)
-    exif.value = null
-  } finally {
-    loading.value = false
+function orientationLabel(value: number): string {
+  switch (value) {
+    case 1: return '正常'
+    case 3: return '旋转180°'
+    case 6: return '顺时针90°'
+    case 8: return '逆时针90°'
+    default: return '未知'
   }
 }
 
-watch(() => props.image, loadExif, { immediate: true })
 </script>
 
 <template>
-  <Card class="info-card">
+  <Card class="info-card exif-display">
     <CardHeader class="card-header">
       <CardTitle class="card-title flex items-center gap-2">
         <Camera class="h-4 w-4 text-foreground" />
@@ -51,10 +39,6 @@ watch(() => props.image, loadExif, { immediate: true })
         <ImageIcon class="h-10 w-10 text-muted-foreground/30" />
         <p>未选择图像</p>
       </div>
-      <div v-else-if="loading" class="loading-state">
-        <Loader2 class="h-6 w-6 animate-spin text-muted-foreground" />
-        <span>读取 EXIF 信息...</span>
-      </div>
       <div v-else-if="exif" class="exif-list">
         <div v-if="image.baseName" class="exif-item">
           <span class="exif-label">文件名</span>
@@ -63,7 +47,12 @@ watch(() => props.image, loadExif, { immediate: true })
         <div v-if="exif.datetime" class="exif-item">
           <Clock class="exif-icon h-3.5 w-3.5" />
           <span class="exif-label">拍摄时间</span>
-          <span class="exif-value">{{ exif.datetime }}</span>
+          <span class="exif-value">{{ formatDateTime(exif.datetime) }}</span>
+        </div>
+        <div v-if="exif.fileCreatedTime" class="exif-item">
+          <Calendar class="exif-icon h-3.5 w-3.5" />
+          <span class="exif-label">创建时间</span>
+          <span class="exif-value">{{ formatDateTime(exif.fileCreatedTime) }}</span>
         </div>
         <div v-if="exif.gpsLatitude != null && exif.gpsLongitude != null" class="exif-item">
           <MapPin class="exif-icon h-3.5 w-3.5" />
@@ -88,7 +77,7 @@ watch(() => props.image, loadExif, { immediate: true })
         <div v-if="exif.shutterSpeed" class="exif-item">
           <Gauge class="exif-icon h-3.5 w-3.5" />
           <span class="exif-label">快门</span>
-          <span class="exif-value">{{ exif.shutterSpeed }}</span>
+          <span class="exif-value">{{ formatShutterSpeed(exif.shutterSpeed) }}</span>
         </div>
         <div v-if="exif.aperture != null" class="exif-item">
           <Aperture class="exif-icon h-3.5 w-3.5" />
@@ -100,10 +89,20 @@ watch(() => props.image, loadExif, { immediate: true })
           <span class="exif-label">ISO</span>
           <span class="exif-value">{{ exif.iso }}</span>
         </div>
+        <div v-if="exif.rating != null && exif.rating > 0" class="exif-item">
+          <Star class="exif-icon h-3.5 w-3.5 fill-current" />
+          <span class="exif-label">评分</span>
+          <span class="exif-value">{{ exif.rating }} / 5</span>
+        </div>
         <div v-if="exif.imageWidth != null && exif.imageHeight != null" class="exif-item">
           <ImageIcon class="exif-icon h-3.5 w-3.5" />
           <span class="exif-label">尺寸</span>
           <span class="exif-value">{{ exif.imageWidth }} × {{ exif.imageHeight }}</span>
+        </div>
+        <div v-if="exif.orientation != null" class="exif-item">
+          <RotateCw class="exif-icon h-3.5 w-3.5" />
+          <span class="exif-label">方向</span>
+          <span class="exif-value">{{ exif.orientation }} ({{ orientationLabel(exif.orientation) }})</span>
         </div>
       </div>
       <div v-else class="empty-state">
@@ -143,16 +142,6 @@ watch(() => props.image, loadExif, { immediate: true })
   color: var(--muted-foreground);
 }
 
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-xl) 0;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-sm);
-}
-
 .exif-list {
   display: flex;
   flex-direction: column;
@@ -165,6 +154,10 @@ watch(() => props.image, loadExif, { immediate: true })
   gap: var(--spacing-xs);
   padding: var(--spacing-xs) 0;
   border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: 0 calc(-1 * var(--spacing-xs));
+  padding-left: var(--spacing-xs);
+  padding-right: var(--spacing-xs);
 }
 
 .exif-item:last-child {
@@ -188,8 +181,8 @@ watch(() => props.image, loadExif, { immediate: true })
   color: var(--foreground);
   text-align: right;
   flex: 1;
-  word-break: break-all;
   font-weight: 500;
+  user-select: text;
 }
 
 </style>

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { FolderOpen, Image, RefreshCw, ChevronUp } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder } from '../../types/image'
+import type { ExifInfo } from '../../types/exif'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import ExifDialog from '../common/ExifDialog.vue'
@@ -110,7 +111,7 @@ const dragSelectionRect = computed(() => {
 const thumbnails = ref<Map<string, string>>(new Map())
 const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
-const gpsDialogVisible = ref(false)
+const exifDialogVisible = ref(false)
 const exifDialogRef = ref<InstanceType<typeof ExifDialog> | null>(null)
 
 // 排序后的图片列表
@@ -270,11 +271,11 @@ function requestDelete() {
 
 function openExifDialog() {
   if (selectedIndices.value.size === 0) return
-  gpsDialogVisible.value = true
+  exifDialogVisible.value = true
 }
 
 function closeExifDialog() {
-  gpsDialogVisible.value = false
+  exifDialogVisible.value = false
   if (exifDialogRef.value) {
     exifDialogRef.value.reset()
   }
@@ -315,6 +316,19 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
       alert('部分文件保存失败:\n' + errors.join('\n'))
     } else {
       console.log(`Successfully updated EXIF for ${filePaths.length} file(s)`)
+    }
+
+    // 写入成功后重新读取 EXIF 更新 image.exifInfo
+    for (const img of selectedImages) {
+      const path = img.jpgPath || img.rawPath
+      if (path) {
+        try {
+          const updatedExif = await invoke<ExifInfo>('read_exif', { filePath: path })
+          img.exifInfo = updatedExif
+        } catch (e) {
+          console.error('Failed to re-read EXIF for', img.baseName, e)
+        }
+      }
     }
 
     closeExifDialog()
@@ -369,10 +383,8 @@ function ensureIndexVisible(index: number) {
 watch(() => props.selectedFolder, loadImages)
 
 // 模式切换后恢复滚动位置到选中的图片
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const gridScrollerRef = ref<any>(null)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const stripScrollerRef = ref<any>(null)
+const gridScrollerRef = ref<{ scrollToItem: (index: number) => void; $el: HTMLElement } | null>(null)
+const stripScrollerRef = ref<{ scrollToItem: (index: number) => void; $el: HTMLElement } | null>(null)
 
 watch(() => props.mode, (newMode) => {
   if (selectedIndex.value >= 0) {
@@ -571,7 +583,7 @@ function removeImages(paths: string[]) {
   selectedIndex.value = -1
 
   paths.forEach(path => {
-    const baseName = path.split('/').pop()?.split('.').shift()
+    const baseName = path.split(/[/\\]/).pop()?.split('.').shift()
     if (baseName) {
       thumbnails.value.delete(baseName)
     }
@@ -694,7 +706,7 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
     />
     <ExifDialog
       ref="exifDialogRef"
-      :visible="gpsDialogVisible"
+      :visible="exifDialogVisible"
       @confirm="handleExifConfirm"
       @cancel="closeExifDialog"
     />

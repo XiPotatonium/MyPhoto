@@ -39,7 +39,7 @@ pub fn write_exif_fields_jpg(
     let original_data = std::fs::read(file_path)?;
     let exif_bytes = common::build_merged_exif_bytes(&original_data, &tags_to_replace, &new_fields)?;
     let new_jpeg = common::build_jpeg_with_exif(&original_data, &exif_bytes)?;
-    std::fs::write(file_path, &new_jpeg)?;
+    common::atomic_write(file_path, &new_jpeg)?;
 
     Ok(())
 }

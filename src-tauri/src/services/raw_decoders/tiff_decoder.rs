@@ -268,8 +268,6 @@ impl ImageData {
 /// TIFF文件解码器主结构
 #[derive(Debug)]
 pub struct TiffDecoder {
-    /// 文件路径
-    pub filename: String,
     /// 文件头部信息
     pub header: TiffHeader,
     /// 主IFD数据
@@ -281,8 +279,6 @@ pub struct TiffDecoder {
 impl TiffDecoder {
     /// 创建新的TIFF解码器实例
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let filename_str = filename.as_ref().to_string_lossy().to_string();
-
         // 解析头部
         let header = TiffHeader::parse(&filename)?;
 
@@ -293,7 +289,6 @@ impl TiffDecoder {
         let image_data = ImageData::extract(&filename, &ifd, header.byte_order)?;
 
         Ok(TiffDecoder {
-            filename: filename_str,
             header,
             ifd,
             image_data,

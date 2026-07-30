@@ -42,7 +42,7 @@ const emit = defineEmits<{
       <div v-if="image.fileCount > 1" class="file-badge">
         {{ image.fileCount }}
       </div>
-      <div v-if="image.exifInfo != null" class="rating-badge">
+      <div v-if="image.exifInfo?.rating && image.exifInfo.rating > 0" class="rating-badge">
         <Star
           v-for="i in 5"
           :key="i"

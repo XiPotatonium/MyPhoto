@@ -322,8 +322,6 @@ impl DngRawInfo {
 /// DNG文件解码器主结构
 #[derive(Debug)]
 pub struct DngDecoder {
-    /// 文件路径
-    pub filename: String,
     /// 文件头部信息
     pub header: DngHeader,
     /// 主IFD（通常包含缩略图信息）
@@ -339,8 +337,6 @@ pub struct DngDecoder {
 impl DngDecoder {
     /// 创建新的DNG解码器实例
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let filename_str = filename.as_ref().to_string_lossy().to_string();
-
         // 解析头部
         let header = DngHeader::parse(&filename)?;
 
@@ -393,7 +389,6 @@ impl DngDecoder {
         };
 
         Ok(DngDecoder {
-            filename: filename_str,
             header,
             main_ifd,
             sub_ifds,

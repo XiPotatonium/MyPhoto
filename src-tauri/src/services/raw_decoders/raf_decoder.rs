@@ -141,6 +141,11 @@ impl CfaData {
         // 读取记录数量
         let count = file.read_i32::<BigEndian>()?;
         
+        // 畸形文件可能给出极大值导致 OOM，添加上限校验
+        if count > 100 {
+            return Err(format!("CFA record count {} exceeds limit of 100", count).into());
+        }
+        
         let mut records = Vec::new();
         for _ in 0..count {
             let id = file.read_u16::<BigEndian>()?;
@@ -164,7 +169,6 @@ impl CfaData {
 /// RAF文件解码器主结构
 #[derive(Debug)]
 pub struct RafDecoder {
-    pub filename: String,
     pub header: RafHeader,
     pub jpeg: JpegData,
     pub cfa: CfaData,
@@ -173,8 +177,6 @@ pub struct RafDecoder {
 impl RafDecoder {
     /// 创建新的RAF解码器实例
     pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let filename_str = filename.as_ref().to_string_lossy().to_string();
-        
         // 解析头部
         let header = RafHeader::parse(&filename)?;
         
@@ -195,7 +197,6 @@ impl RafDecoder {
         )?;
         
         Ok(RafDecoder {
-            filename: filename_str,
             header,
             jpeg,
             cfa,

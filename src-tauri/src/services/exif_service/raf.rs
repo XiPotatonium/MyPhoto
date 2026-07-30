@@ -116,7 +116,7 @@ pub fn write_exif_fields_raf(
         }
     }
 
-    std::fs::write(file_path, &output)?;
+    common::atomic_write(file_path, &output)?;
 
     Ok(())
 }

@@ -17,7 +17,7 @@ pub struct ExifWriteRequest {
     pub rating: Option<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExifInfo {
     pub datetime: Option<String>,
@@ -33,24 +33,7 @@ pub struct ExifInfo {
     pub rating: Option<u8>,
     pub image_width: Option<u32>,
     pub image_height: Option<u32>,
+    pub orientation: Option<u16>,
+    pub file_created_time: Option<String>,
 }
 
-impl Default for ExifInfo {
-    fn default() -> Self {
-        Self {
-            datetime: None,
-            gps_latitude: None,
-            gps_longitude: None,
-            camera_make: None,
-            camera_model: None,
-            lens_model: None,
-            focal_length: None,
-            shutter_speed: None,
-            aperture: None,
-            iso: None,
-            rating: None,
-            image_width: None,
-            image_height: None,
-        }
-    }
-}

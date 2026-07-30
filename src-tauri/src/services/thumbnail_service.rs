@@ -68,10 +68,10 @@ fn load_image(file_path: &Path) -> Result<DynamicImage, crate::error::AppError> 
     }
 }
 
-pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
+pub async fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppError> {
     // 使用缓存获取或加载图片
     let cache = get_cache();
-    let img = cache.get_or_load(file_path, load_image)?;
+    let img = cache.get_or_load(file_path, load_image).await?;
 
     let thumb = img.resize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, FilterType::Triangle);
 
@@ -87,7 +87,7 @@ pub fn generate_thumbnail(file_path: &Path) -> Result<String, crate::error::AppE
 /// JPEG/PNG 直接返回原始文件字节（不解码不重编码，保留 Ultra HDR gain map 等附加数据，
 /// EXIF 方向由浏览器 image-orientation: from-image 默认行为处理）；
 /// 其他格式沿用解码 + 重编码为 JPEG 的链路
-pub fn read_image_bytes(file_path: &Path) -> Result<Vec<u8>, crate::error::AppError> {
+pub async fn read_image_bytes(file_path: &Path) -> Result<Vec<u8>, crate::error::AppError> {
     let ext = file_path
         .extension()
         .and_then(|e| e.to_str())
@@ -99,7 +99,7 @@ pub fn read_image_bytes(file_path: &Path) -> Result<Vec<u8>, crate::error::AppEr
         _ => {
             // 使用缓存获取或加载图片（load_image 处理 EXIF 方向）
             let cache = get_cache();
-            let img = cache.get_or_load(file_path, load_image)?;
+            let img = cache.get_or_load(file_path, load_image).await?;
 
             let mut buf = Vec::new();
             let mut cursor = Cursor::new(&mut buf);

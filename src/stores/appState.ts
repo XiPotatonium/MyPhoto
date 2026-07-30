@@ -1,4 +1,4 @@
-import { reactive, readonly } from 'vue'
+import { reactive } from 'vue'
 import type { ImageGroup, SortField, SortOrder } from '../types/image'
 
 interface ConfirmDialogState {
@@ -7,6 +7,7 @@ interface ConfirmDialogState {
   message: string
   options: { label: string; value: string }[]
   onConfirm: (value: string) => void
+  onCancel?: () => void | Promise<void>
 }
 
 export type ViewMode = 'browse' | 'view'
@@ -14,7 +15,6 @@ export type ViewMode = 'browse' | 'view'
 interface AppState {
   rootPath: string | null
   selectedFolder: string | null
-  selectedImages: ImageGroup[]
   currentImage: ImageGroup | null
   currentFormat: 'jpg' | 'raw'
   sortField: SortField
@@ -26,7 +26,6 @@ interface AppState {
 const state = reactive<AppState>({
   rootPath: null,
   selectedFolder: null,
-  selectedImages: [],
   currentImage: null,
   currentFormat: 'jpg',
   sortField: 'name',
@@ -38,6 +37,7 @@ const state = reactive<AppState>({
     message: '',
     options: [],
     onConfirm: () => {},
+    onCancel: undefined,
   },
 })
 
@@ -48,10 +48,6 @@ export function useAppState() {
 
   function setSelectedFolder(path: string | null) {
     state.selectedFolder = path
-  }
-
-  function setSelectedImages(images: ImageGroup[]) {
-    state.selectedImages = images
   }
 
   function setCurrentImage(image: ImageGroup | null) {
@@ -82,8 +78,9 @@ export function useAppState() {
     message: string,
     options: { label: string; value: string }[],
     onConfirm: (value: string) => void,
+    onCancel?: () => void | Promise<void>,
   ) {
-    state.confirmDialog = { visible: true, title, message, options, onConfirm }
+    state.confirmDialog = { visible: true, title, message, options, onConfirm, onCancel }
   }
 
   function hideConfirmDialog() {
@@ -91,10 +88,9 @@ export function useAppState() {
   }
 
   return {
-    state: readonly(state) as AppState,
+    state,
     setRootPath,
     setSelectedFolder,
-    setSelectedImages,
     setCurrentImage,
     setCurrentFormat,
     setSortField,
