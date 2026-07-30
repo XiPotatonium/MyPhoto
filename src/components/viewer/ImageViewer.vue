@@ -14,7 +14,7 @@ const props = defineProps<{
 const viewportRef = ref<HTMLDivElement>()
 const imgRef = ref<HTMLImageElement>()
 
-const imageData = ref<string | null>(null)
+const imageUrl = ref<string | null>(null)
 const loading = ref(false)
 
 // 图片固有尺寸（原始像素）
@@ -147,11 +147,31 @@ onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect()
   }
+  setImageUrl(null)
 })
+
+// 替换 Blob URL 并释放旧 URL，避免内存泄漏
+function setImageUrl(url: string | null) {
+  if (imageUrl.value) {
+    URL.revokeObjectURL(imageUrl.value)
+  }
+  imageUrl.value = url
+}
+
+function mimeFromPath(path: string): string {
+  return path.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+}
+
+// 以二进制 IPC 获取图片字节（JPEG/PNG 为原始文件字节，保留 HDR gain map）并生成 Blob URL
+async function fetchImageUrl(filePath: string): Promise<string> {
+  const buffer = await invoke<ArrayBuffer>('read_image_file', { filePath })
+  const blob = new Blob([buffer], { type: mimeFromPath(filePath) })
+  return URL.createObjectURL(blob)
+}
 
 async function loadImage() {
   if (!props.image) {
-    imageData.value = null
+    setImageUrl(null)
     naturalWidth.value = 0
     naturalHeight.value = 0
     pixelScale.value = 1
@@ -166,27 +186,18 @@ async function loadImage() {
   translateX.value = 0
   translateY.value = 0
 
-  const filePath = props.format === 'jpg' ? props.image.jpgPath : props.image.rawPath
+  const preferred = props.format === 'jpg' ? props.image.jpgPath : props.image.rawPath
+  const filePath = preferred || props.image.jpgPath || props.image.rawPath
   if (!filePath) {
-    const fallback = props.image.jpgPath || props.image.rawPath
-    if (!fallback) { imageData.value = null; return }
-    loading.value = true
-    try {
-      imageData.value = await invoke<string>('read_image_file', { filePath: fallback })
-    } catch (e) {
-      console.error('Failed to load image:', e)
-      imageData.value = null
-    } finally {
-      loading.value = false
-    }
+    setImageUrl(null)
     return
   }
   loading.value = true
   try {
-    imageData.value = await invoke<string>('read_image_file', { filePath })
+    setImageUrl(await fetchImageUrl(filePath))
   } catch (e) {
     console.error('Failed to load image:', e)
-    imageData.value = null
+    setImageUrl(null)
   } finally {
     loading.value = false
   }
@@ -206,7 +217,7 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
     @mouseleave="onMouseLeave"
   >
     <!-- 缩放控件 -->
-    <div v-if="image && !loading && imageData" class="viewer-zoom-controls">
+    <div v-if="image && !loading && imageUrl" class="viewer-zoom-controls">
       <ButtonGroup class="viewer-zoom-controls-group">
         <Button
           variant="ghost"
@@ -252,10 +263,10 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
           <span>加载图像...</span>
         </div>
       </template>
-      <template v-else-if="imageData">
+      <template v-else-if="imageUrl">
         <img
           ref="imgRef"
-          :src="'data:image/jpeg;base64,' + imageData"
+          :src="imageUrl"
           class="viewer-img"
           draggable="false"
           :style="{

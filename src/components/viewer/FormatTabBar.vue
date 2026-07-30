@@ -26,6 +26,7 @@ function switchFormat(format: 'jpg' | 'raw') {
     <CardHeader class="format-card-header">
       <CardTitle class="format-card-title">
         {{ image.baseName }}
+        <span v-if="image.isHdr" class="hdr-badge">HDR</span>
       </CardTitle>
       <CardAction>
         <div class="format-tabs">
@@ -86,6 +87,20 @@ function switchFormat(format: 'jpg' | 'raw') {
   white-space: nowrap;
   min-width: 0;
   letter-spacing: var(--letter-spacing-tight);
+}
+
+.hdr-badge {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--spacing-xs);
+  padding: 0 var(--spacing-xs);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wider);
+  line-height: 16px;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
 }
 
 .format-tabs {

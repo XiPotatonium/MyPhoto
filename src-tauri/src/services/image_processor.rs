@@ -22,6 +22,67 @@ fn is_raw_ext(ext: &str) -> bool {
     IMAGE_EXTENSIONS_RAW.contains(&lower.as_str())
 }
 
+/// 检测 JPEG 是否为 Gain Map HDR（Ultra HDR / ISO 21496-1）
+/// 仅解析文件头部的 JPEG 段（到 SOS 为止），命中以下任一标志即为 HDR：
+/// - APP2 段内容以 "urn:iso:std:iso:ts:21496" 开头（ISO 21496-1 gain map）
+/// - APP1 XMP 段中包含 "hdrgm:Version"（Adobe gain map）
+/// 解析失败一律视为非 HDR
+fn is_hdr_jpeg(path: &Path) -> bool {
+    use std::io::Read;
+
+    // 头部段（含 XMP）通常在前几十 KB，限制读取量避免大文件开销
+    const HEADER_LIMIT: u64 = 512 * 1024;
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut buf = Vec::new();
+    if file.take(HEADER_LIMIT).read_to_end(&mut buf).is_err() {
+        return false;
+    }
+
+    if buf.len() < 4 || buf[0] != 0xFF || buf[1] != 0xD8 {
+        return false;
+    }
+
+    let mut pos = 2;
+    while pos + 4 <= buf.len() {
+        if buf[pos] != 0xFF {
+            break;
+        }
+        let marker = buf[pos + 1];
+        // SOS/EOI 之后为压缩数据，头部段解析结束
+        if marker == 0xDA || marker == 0xD9 {
+            break;
+        }
+        let len = ((buf[pos + 2] as usize) << 8) | buf[pos + 3] as usize;
+        if len < 2 {
+            break;
+        }
+        let data_start = pos + 4;
+        let data_end = (pos + 2 + len).min(buf.len());
+        if data_start > data_end {
+            break;
+        }
+        let data = &buf[data_start..data_end];
+        let is_hdr = match marker {
+            0xE2 => data.starts_with(b"urn:iso:std:iso:ts:21496"),
+            0xE1 => {
+                data.starts_with(b"http://ns.adobe.com/xap/1.0/")
+                    && data
+                        .windows(b"hdrgm:Version".len())
+                        .any(|w| w == b"hdrgm:Version")
+            }
+            _ => false,
+        };
+        if is_hdr {
+            return true;
+        }
+        pos += 2 + len;
+    }
+    false
+}
+
 pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
     let mut groups: HashMap<String, ImageGroup> = HashMap::new();
 
@@ -72,6 +133,7 @@ pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
             jpg_path: None,
             raw_path: None,
             file_count: 0,
+            is_hdr: false,
             modified_time: None,
             file_created_time: None,
             exif_info: None,
@@ -102,8 +164,20 @@ pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
         }
     }
 
-    // 读取每个图片组的 EXIF 信息
+    // 读取每个图片组的 EXIF 信息，并检测 JPEG 是否为 gain map HDR
     for group in groups.values_mut() {
+        if let Some(jpg_path) = group.jpg_path.as_ref() {
+            let path = Path::new(jpg_path);
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if ext == "jpg" || ext == "jpeg" {
+                group.is_hdr = is_hdr_jpeg(path);
+            }
+        }
+
         let file_path = group.jpg_path.as_ref().or(group.raw_path.as_ref());
         if let Some(path_str) = file_path {
             let path = Path::new(path_str);

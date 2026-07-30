@@ -9,6 +9,7 @@ pub struct ImageGroup {
     pub jpg_path: Option<String>,
     pub raw_path: Option<String>,
     pub file_count: u32,
+    pub is_hdr: bool,
     pub modified_time: Option<String>,
     pub file_created_time: Option<String>,
     pub exif_info: Option<ExifInfo>,

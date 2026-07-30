@@ -5,6 +5,7 @@ export interface ImageGroup {
   jpgPath: string | null
   rawPath: string | null
   fileCount: number
+  isHdr: boolean
   modifiedTime: string | null
   fileCreatedTime: string | null
   exifInfo: ExifInfo | null

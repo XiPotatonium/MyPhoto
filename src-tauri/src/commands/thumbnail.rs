@@ -64,7 +64,7 @@ pub async fn generate_thumbnails_batch(
 }
 
 #[tauri::command]
-pub async fn read_image_file(file_path: String) -> Result<String, AppError> {
+pub async fn read_image_file(file_path: String) -> Result<tauri::ipc::Response, AppError> {
     let path = Path::new(&file_path).to_path_buf();
     if !path.is_file() {
         return Err(AppError::General(format!(
@@ -72,8 +72,9 @@ pub async fn read_image_file(file_path: String) -> Result<String, AppError> {
             file_path
         )));
     }
-    // 在阻塞线程池中执行图片读取操作，避免阻塞主线程
-    tokio::task::spawn_blocking(move || thumbnail_service::read_full_image(&path))
+    // 在阻塞线程池中执行图片读取操作，避免阻塞主线程；以二进制 IPC 返回原始字节
+    let bytes = tokio::task::spawn_blocking(move || thumbnail_service::read_image_bytes(&path))
         .await
-        .map_err(|e| AppError::General(format!("Task join error: {}", e)))?
+        .map_err(|e| AppError::General(format!("Task join error: {}", e)))??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
