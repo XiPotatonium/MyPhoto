@@ -337,6 +337,33 @@ function navigateImage(direction: number) {
   selectedIndices.value.clear()
   selectedIndices.value.add(newIndex)
   emit('image-selected', images.value[newIndex])
+  ensureIndexVisible(newIndex)
+}
+
+// 确保指定索引的缩略图在可视区域内（仅在滚出可视区时做最小滚动）
+function ensureIndexVisible(index: number) {
+  if (props.mode === 'strip') {
+    const el = stripScrollerRef.value?.$el as HTMLElement | undefined
+    if (!el) return
+    const itemLeft = index * stripItemWidth
+    const itemRight = itemLeft + stripItemWidth
+    if (itemLeft < el.scrollLeft) {
+      el.scrollLeft = itemLeft
+    } else if (itemRight > el.scrollLeft + el.clientWidth) {
+      el.scrollLeft = itemRight - el.clientWidth
+    }
+  } else {
+    const el = gridScrollerRef.value?.$el as HTMLElement | undefined
+    if (!el) return
+    const rowIndex = Math.floor(index / itemsPerRow.value)
+    const itemTop = rowIndex * rowHeight.value
+    const itemBottom = itemTop + rowHeight.value
+    if (itemTop < el.scrollTop) {
+      el.scrollTop = itemTop
+    } else if (itemBottom > el.scrollTop + el.clientHeight) {
+      el.scrollTop = itemBottom - el.clientHeight
+    }
+  }
 }
 
 watch(() => props.selectedFolder, loadImages)

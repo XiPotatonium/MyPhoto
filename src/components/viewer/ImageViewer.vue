@@ -39,7 +39,11 @@ const dragStartTranslateY = ref(0)
 
 // 适应窗口的缩放比例
 const fitScale = computed(() => {
-  if (naturalWidth.value === 0 || viewportWidth.value === 0) return 1
+  // 图片或视口任一尺寸为 0（未加载完成 / 容器尚未展开）时返回 1，避免算出 0 或 NaN
+  if (
+    naturalWidth.value === 0 || naturalHeight.value === 0 ||
+    viewportWidth.value === 0 || viewportHeight.value === 0
+  ) return 1
   const scaleX = viewportWidth.value / naturalWidth.value
   const scaleY = viewportHeight.value / naturalHeight.value
   return Math.min(scaleX, scaleY)
@@ -68,8 +72,10 @@ function updateViewportSize() {
   }
 }
 
+// 兜底：正常流程下固有尺寸已在 loadImage 中通过预解码取得，
+// 仅当预解码失败（naturalWidth 仍为 0）时才在 load 事件后重新计算适应窗口
 function onImageLoad() {
-  if (imgRef.value) {
+  if (imgRef.value && naturalWidth.value === 0) {
     naturalWidth.value = imgRef.value.naturalWidth
     naturalHeight.value = imgRef.value.naturalHeight
     updateViewportSize()
@@ -137,7 +143,12 @@ onMounted(() => {
   if (viewportRef.value) {
     updateViewportSize()
     resizeObserver = new ResizeObserver(() => {
+      // 视口尺寸变化前若处于适应窗口状态（未手动缩放），变化后保持适应窗口。
+      // 这也修复了图片在容器高度为 0（browse 模式 / 展开动画中）时加载完成，
+      // 导致初始缩放计算错误且无法自愈的问题
+      const wasFitted = !isZoomed.value
       updateViewportSize()
+      if (wasFitted) resetTransform()
     })
     resizeObserver.observe(viewportRef.value)
   }
@@ -169,37 +180,64 @@ async function fetchImageUrl(filePath: string): Promise<string> {
   return URL.createObjectURL(blob)
 }
 
-async function loadImage() {
-  if (!props.image) {
-    setImageUrl(null)
-    naturalWidth.value = 0
-    naturalHeight.value = 0
-    pixelScale.value = 1
-    translateX.value = 0
-    translateY.value = 0
-    return
-  }
-  // 重置状态，等待新图片加载完成后在 onImageLoad 中设置 fitScale
+// 递增的加载序号，快速切图时用于丢弃过期的加载结果
+let loadSeq = 0
+
+function resetImageState() {
   naturalWidth.value = 0
   naturalHeight.value = 0
   pixelScale.value = 1
   translateX.value = 0
   translateY.value = 0
+}
+
+async function loadImage() {
+  const seq = ++loadSeq
+  if (!props.image) {
+    setImageUrl(null)
+    resetImageState()
+    return
+  }
 
   const preferred = props.format === 'jpg' ? props.image.jpgPath : props.image.rawPath
   const filePath = preferred || props.image.jpgPath || props.image.rawPath
   if (!filePath) {
     setImageUrl(null)
+    resetImageState()
     return
   }
   loading.value = true
   try {
-    setImageUrl(await fetchImageUrl(filePath))
+    const url = await fetchImageUrl(filePath)
+    // 预解码：在挂载 <img> 前取得固有尺寸并算好 fitScale，
+    // 避免首帧以 100% 比例闪现，同时消除挂载时的解码卡顿
+    const probe = new Image()
+    probe.src = url
+    try {
+      await probe.decode()
+    } catch {
+      // 预解码失败时不中断，交由 <img> 的 load 事件兜底计算
+    }
+    if (seq !== loadSeq) {
+      // 期间已发起新的加载，丢弃本次结果
+      URL.revokeObjectURL(url)
+      return
+    }
+    naturalWidth.value = probe.naturalWidth
+    naturalHeight.value = probe.naturalHeight
+    updateViewportSize()
+    // 初始状态：适应窗口
+    pixelScale.value = fitScale.value
+    translateX.value = 0
+    translateY.value = 0
+    setImageUrl(url)
   } catch (e) {
+    if (seq !== loadSeq) return
     console.error('Failed to load image:', e)
     setImageUrl(null)
+    resetImageState()
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
