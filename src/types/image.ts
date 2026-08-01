@@ -18,3 +18,11 @@ export interface SortOptions {
   field: SortField
   order: SortOrder
 }
+
+/// 后端 read_exif_batch / exif-ready 事件的单项结果（字段 snake_case）。
+export interface ExifBatchResult {
+  session_id: string
+  base_name: string
+  exif_info: ExifInfo | null
+  error: string | null
+}

@@ -7,8 +7,19 @@ use super::common;
 
 // ── Read ──────────────────────────────────────────────────────────────────────
 
+/// 内嵌 JPEG 前缀读取上限（512KB），足以覆盖绝大多数 APP1(EXIF) 与 SOF 段。
+const RAF_PREFIX_LEN: usize = 512 * 1024;
+
 /// Read EXIF info from a Fujifilm RAF raw file.
+///
+/// 优先只读内嵌 JPEG 的前缀（512KB）解析 EXIF，并从同一前缀补全像素尺寸，
+/// 避免为读取元数据而载入整段全尺寸预览。前缀路径失败时回退整段读取。
 pub fn read_exif_raf(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
+    if let Some(info) = read_exif_raf_prefix(file_path) {
+        return Ok(info);
+    }
+
+    // 回退：整段读取内嵌 JPEG
     use crate::services::raw_decoders::raf_decoder::RafDecoder;
 
     let decoder = RafDecoder::new(file_path)
@@ -19,6 +30,39 @@ pub fn read_exif_raf(file_path: &Path) -> Result<ExifInfo, crate::error::AppErro
         .read_from_container(&mut cursor)
         .map_err(|e| crate::error::AppError::Exif(e.to_string()))?;
     common::parse_exif_data(&exif_data)
+}
+
+/// 轻量前缀路径：解析头部拿到内嵌 JPEG 位置，仅读前缀解析 EXIF 与尺寸。
+/// 任一步失败返回 None，交由调用方回退整段读取。
+fn read_exif_raf_prefix(file_path: &Path) -> Option<ExifInfo> {
+    use crate::services::raw_decoders::raf_decoder::{JpegData, RafHeader};
+
+    let header = RafHeader::parse(file_path).ok()?;
+    let jpeg = JpegData::extract_prefix(
+        file_path,
+        header.offset_jpg_offset,
+        header.offset_jpg_length,
+        RAF_PREFIX_LEN,
+    )
+    .ok()?;
+
+    let mut cursor = std::io::Cursor::new(&jpeg.data);
+    let exif_data = exif::Reader::new().read_from_container(&mut cursor).ok()?;
+    let mut info = common::parse_exif_data(&exif_data).ok()?;
+
+    // 从同一前缀补全像素尺寸，避免 mod.rs 二次读取
+    if info.image_width.is_none() || info.image_height.is_none() {
+        if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&jpeg.data))
+            .with_guessed_format()
+        {
+            if let Ok((w, h)) = reader.into_dimensions() {
+                info.image_width = Some(w);
+                info.image_height = Some(h);
+            }
+        }
+    }
+
+    Some(info)
 }
 
 // ── Write ─────────────────────────────────────────────────────────────────────

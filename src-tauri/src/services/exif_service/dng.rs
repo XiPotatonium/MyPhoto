@@ -8,13 +8,21 @@ use super::tiff;
 
 // ── Read ──────────────────────────────────────────────────────────────────────
 
+/// DNG 预览 JPEG 前缀读取上限（512KB），足以覆盖预览头部的 APP1(EXIF)。
+const DNG_PREFIX_LEN: usize = 512 * 1024;
+
 /// Read EXIF info from an Adobe DNG raw file.
 ///
 /// Strategy:
-/// 1. Try extracting EXIF from the embedded preview JPEG (via DngDecoder)
-/// 2. Fallback: read EXIF directly from the DNG file (which is TIFF-based)
+/// 1. 轻量：仅解析 IFD 链 + 读预览 JPEG 前缀（512KB）解析 EXIF，宽高从 tag 256/257 填充
+/// 2. Fallback: 构造完整 DngDecoder，从整段预览 JPEG 解析 EXIF
+/// 3. Fallback: 直接把 DNG（TIFF-based）作为容器读取 EXIF
 pub fn read_exif_dng(file_path: &Path) -> Result<ExifInfo, crate::error::AppError> {
     use crate::services::raw_decoders::dng_decoder::DngDecoder;
+
+    if let Some(info) = read_exif_dng_prefix(file_path) {
+        return Ok(info);
+    }
 
     let decoder = DngDecoder::new(file_path)
         .map_err(|e| crate::error::AppError::General(format!("Failed to decode DNG: {}", e)))?;
@@ -34,6 +42,50 @@ pub fn read_exif_dng(file_path: &Path) -> Result<ExifInfo, crate::error::AppErro
         .read_from_container(&mut reader)
         .map_err(|e| crate::error::AppError::Exif(e.to_string()))?;
     common::parse_exif_data(&exif_data)
+}
+
+/// 轻量前缀路径：仅解析 IFD 链，从主 IFD 及子 IFD 依次尝试读取预览 JPEG 前缀解析 EXIF。
+/// 任一步失败返回 None，交由调用方回退整段路径。
+fn read_exif_dng_prefix(file_path: &Path) -> Option<ExifInfo> {
+    use crate::services::raw_decoders::dng_decoder::{DngDecoder, DngIfdChain, DngPreviewData};
+
+    let DngIfdChain {
+        header,
+        main_ifd,
+        sub_ifds,
+    } = DngDecoder::parse_ifds(file_path).ok()?;
+
+    // 主 IFD 优先（与原整段路径一致），再尝试各子 IFD
+    for ifd in std::iter::once(&main_ifd).chain(sub_ifds.iter()) {
+        let preview = match DngPreviewData::extract_prefix(
+            file_path,
+            ifd,
+            header.byte_order,
+            DNG_PREFIX_LEN,
+        ) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if preview.data.is_empty() {
+            continue;
+        }
+        let mut cursor = std::io::Cursor::new(&preview.data);
+        if let Ok(exif_data) = exif::Reader::new().read_from_container(&mut cursor) {
+            if let Ok(mut info) = common::parse_exif_data(&exif_data) {
+                // 宽高从 IFD 的 tag 256/257 补全，避免 mod.rs 二次读取
+                if (info.image_width.is_none() || info.image_height.is_none())
+                    && preview.width > 0
+                    && preview.height > 0
+                {
+                    info.image_width = Some(preview.width);
+                    info.image_height = Some(preview.height);
+                }
+                return Some(info);
+            }
+        }
+    }
+
+    None
 }
 
 // ── Write ─────────────────────────────────────────────────────────────────────

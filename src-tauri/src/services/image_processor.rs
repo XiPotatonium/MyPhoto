@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::models::image::ImageGroup;
-use crate::services::exif_service;
 
 const IMAGE_EXTENSIONS_JPG: &[&str] = &["jpg", "jpeg", "png"];
 const IMAGE_EXTENSIONS_RAW: &[&str] = &["raf", "tif", "tiff", "bmp", "dng"];
@@ -164,38 +163,60 @@ pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
         }
     }
 
-    // 读取每个图片组的 EXIF 信息，并检测 JPEG 是否为 gain map HDR
-    for group in groups.values_mut() {
-        if let Some(jpg_path) = group.jpg_path.as_ref() {
-            let path = Path::new(jpg_path);
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-            if ext == "jpg" || ext == "jpeg" {
-                group.is_hdr = is_hdr_jpeg(path);
-            }
-        }
-
-        let file_path = group.jpg_path.as_ref().or(group.raw_path.as_ref());
-        if let Some(path_str) = file_path {
-            let path = Path::new(path_str);
-            // 容错处理：EXIF 读取失败时回退到空信息
-            match exif_service::read_exif(path) {
-                Ok(exif) => {
-                    group.exif_info = Some(exif);
-                }
-                Err(e) => {
-                    log::debug!("Failed to read EXIF for {}: {}", path_str, e);
-                    group.exif_info = None;
-                }
-            }
-        }
-    }
+    // 并行检测每个图片组的 JPEG 是否为 gain map HDR。
+    // EXIF 不在此处读取：改为前端拿到列表后通过 read_exif_batch 异步补齐，
+    // 使 list_images 快速返回。
+    // 使用 std::thread::scope 做数据并行（无需额外依赖，与本项目 EXIF 写入并行方式一致）。
+    let mut group_refs: Vec<&mut ImageGroup> = groups.values_mut().collect();
+    detect_hdr_parallel(&mut group_refs);
 
     let result: Vec<ImageGroup> = groups.into_values().collect();
 
     // 排序逻辑已移至前端，后端返回原始列表
     Ok(result)
+}
+
+/// 对图片组并行检测 gain map HDR（仅解析 JPEG 头部段）。
+fn detect_hdr_parallel(groups: &mut [&mut ImageGroup]) {
+    if groups.is_empty() {
+        return;
+    }
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(groups.len());
+
+    if num_threads <= 1 {
+        for group in groups.iter_mut() {
+            detect_hdr_one(group);
+        }
+        return;
+    }
+
+    let chunk_size = (groups.len() + num_threads - 1) / num_threads;
+    std::thread::scope(|s| {
+        for chunk in groups.chunks_mut(chunk_size) {
+            s.spawn(move || {
+                for group in chunk {
+                    detect_hdr_one(group);
+                }
+            });
+        }
+    });
+}
+
+/// 检测单个图片组的 JPEG 是否为 gain map HDR。
+fn detect_hdr_one(group: &mut ImageGroup) {
+    if let Some(jpg_path) = group.jpg_path.as_ref() {
+        let path = Path::new(jpg_path);
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if ext == "jpg" || ext == "jpeg" {
+            group.is_hdr = is_hdr_jpeg(path);
+        }
+    }
 }

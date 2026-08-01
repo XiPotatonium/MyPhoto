@@ -205,6 +205,68 @@ impl DngPreviewData {
         })
     }
 
+    /// 仅读取预览图的尺寸与前缀数据（最多 max_len 字节）。
+    /// 宽高从 IFD 的 tag 256/257 直接取得，不依赖预览数据；
+    /// EXIF 位于预览 JPEG 头部，读取前缀即可解析，避免载入整段预览。
+    pub fn extract_prefix<P: AsRef<Path>>(
+        filename: P,
+        ifd: &DngIfd,
+        byte_order: DngByteOrder,
+        max_len: usize,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut width: u32 = 0;
+        let mut height: u32 = 0;
+        let mut strip_offset: u32 = 0;
+        let mut strip_byte_count: u32 = 0;
+
+        for entry in &ifd.entries {
+            match entry.tag {
+                256 => width = entry.value_offset,   // ImageWidth
+                257 => height = entry.value_offset,  // ImageLength
+                273 => strip_offset = entry.value_offset,  // StripOffsets
+                279 => strip_byte_count = entry.value_offset,  // StripByteCounts
+                513 => strip_offset = entry.value_offset,  // JPEGInterchangeFormat
+                514 => strip_byte_count = entry.value_offset,  // JPEGInterchangeFormatLength
+                _ => {}
+            }
+        }
+
+        let mut data = Vec::new();
+        if strip_offset > 0 && strip_byte_count > 0 {
+            let read_len = (strip_byte_count as usize).min(max_len);
+            let mut file = File::open(&filename)?;
+            file.seek(SeekFrom::Start(strip_offset as u64))?;
+            data = vec![0u8; read_len];
+            file.read_exact(&mut data)?;
+        } else {
+            // 从多个 strip 中读取，仅累计到 max_len 为止
+            let offsets = Self::read_strip_values(&filename, ifd, 273, byte_order)?;
+            let counts = Self::read_strip_values(&filename, ifd, 279, byte_order)?;
+
+            if !offsets.is_empty() {
+                let mut file = File::open(&filename)?;
+                for (i, offset) in offsets.iter().enumerate() {
+                    if data.len() >= max_len {
+                        break;
+                    }
+                    let count = counts.get(i).copied().unwrap_or(0) as usize;
+                    let remaining = max_len - data.len();
+                    let read_len = count.min(remaining);
+                    file.seek(SeekFrom::Start(*offset as u64))?;
+                    let mut strip = vec![0u8; read_len];
+                    file.read_exact(&mut strip)?;
+                    data.extend_from_slice(&strip);
+                }
+            }
+        }
+
+        Ok(DngPreviewData {
+            data,
+            width,
+            height,
+        })
+    }
+
     /// 读取strip值数组
     fn read_strip_values<P: AsRef<Path>>(
         filename: P,
@@ -319,6 +381,17 @@ impl DngRawInfo {
     }
 }
 
+/// DNG 轻量解析结果：仅包含头部与 IFD 链，不包含预览/RAW 数据。
+#[derive(Debug)]
+pub struct DngIfdChain {
+    /// 文件头部信息
+    pub header: DngHeader,
+    /// 主IFD
+    pub main_ifd: DngIfd,
+    /// 子IFD列表
+    pub sub_ifds: Vec<DngIfd>,
+}
+
 /// DNG文件解码器主结构
 #[derive(Debug)]
 pub struct DngDecoder {
@@ -335,8 +408,11 @@ pub struct DngDecoder {
 }
 
 impl DngDecoder {
-    /// 创建新的DNG解码器实例
-    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
+    /// 仅解析头部与 IFD 链（主 IFD + 子 IFD），不读取预览/RAW 数据。
+    /// 用于轻量获取预览尺寸与定位预览/EXIF，避免构造完整解码器。
+    pub fn parse_ifds<P: AsRef<Path>>(
+        filename: P,
+    ) -> Result<DngIfdChain, Box<dyn std::error::Error>> {
         // 解析头部
         let header = DngHeader::parse(&filename)?;
 
@@ -377,6 +453,21 @@ impl DngDecoder {
                 sub_ifds.push(second_ifd);
             }
         }
+
+        Ok(DngIfdChain {
+            header,
+            main_ifd,
+            sub_ifds,
+        })
+    }
+
+    /// 创建新的DNG解码器实例
+    pub fn new<P: AsRef<Path>>(filename: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let DngIfdChain {
+            header,
+            main_ifd,
+            sub_ifds,
+        } = Self::parse_ifds(&filename)?;
 
         // 提取预览数据（从主IFD）
         let preview = DngPreviewData::extract(&filename, &main_ifd, header.byte_order)?;

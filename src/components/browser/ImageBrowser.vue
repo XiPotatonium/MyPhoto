@@ -3,7 +3,7 @@ import { ref, watch, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { FolderOpen, Image, RefreshCw, ChevronUp } from 'lucide-vue-next'
-import type { ImageGroup, SortField, SortOrder } from '../../types/image'
+import type { ImageGroup, SortField, SortOrder, ExifBatchResult } from '../../types/image'
 import type { ExifInfo } from '../../types/exif'
 import ImageThumbnail from './ImageThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
@@ -11,6 +11,9 @@ import ExifDialog from '../common/ExifDialog.vue'
 import type { ExifWriteRequest } from '../common/ExifDialog.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { RecycleScroller } from 'vue-virtual-scroller'
+import { useAppState } from '../../stores/appState'
+
+const appState = useAppState()
 
 /// 获取图片的排序时间（优先使用 EXIF 时间，其次文件创建时间）
 function getSortTime(image: ImageGroup): string | null {
@@ -26,7 +29,18 @@ function getRating(image: ImageGroup): number {
 }
 
 /// 前端排序函数
-function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortOrder): ImageGroup[] {
+///
+/// exifReady 为 false（EXIF 加载中）时使用与 EXIF 无关的降级键，保证顺序稳定：
+/// - name：baseName（不变）
+/// - date：仅 fileCreatedTime
+/// - rating：baseName 占位
+/// EXIF 到齐后（exifReady=true）使用完整键，由 computed 自动一次性重排。
+function sortImages(
+  images: ImageGroup[],
+  sortField: SortField,
+  sortOrder: SortOrder,
+  exifReady: boolean,
+): ImageGroup[] {
   const sorted = [...images]
 
   switch (sortField) {
@@ -37,8 +51,9 @@ function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortO
       break
     case 'date':
       sorted.sort((a, b) => {
-        const timeA = getSortTime(a)
-        const timeB = getSortTime(b)
+        // 加载中降级：仅用文件创建时间；到齐后：EXIF datetime 回退 fileCreatedTime
+        const timeA = exifReady ? getSortTime(a) : a.fileCreatedTime
+        const timeB = exifReady ? getSortTime(b) : b.fileCreatedTime
         if (!timeA && !timeB) return 0
         if (!timeA) return 1
         if (!timeB) return -1
@@ -46,11 +61,18 @@ function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortO
       })
       break
     case 'rating':
-      sorted.sort((a, b) => {
-        const ratingA = getRating(a)
-        const ratingB = getRating(b)
-        return ratingA - ratingB
-      })
+      if (exifReady) {
+        sorted.sort((a, b) => {
+          const ratingA = getRating(a)
+          const ratingB = getRating(b)
+          return ratingA - ratingB
+        })
+      } else {
+        // 加载中降级：按 baseName 占位，避免评分渐进填充触发列表跳动
+        sorted.sort((a, b) => {
+          return a.baseName.toLowerCase().localeCompare(b.baseName.toLowerCase())
+        })
+      }
       break
   }
 
@@ -62,6 +84,7 @@ function sortImages(images: ImageGroup[], sortField: SortField, sortOrder: SortO
 }
 
 interface ThumbnailResult {
+  session_id: string
   base_name: string
   thumbnail: string | null
   error: string | null
@@ -114,9 +137,9 @@ const containerWidth = ref(0)
 const exifDialogVisible = ref(false)
 const exifDialogRef = ref<InstanceType<typeof ExifDialog> | null>(null)
 
-// 排序后的图片列表
+// 排序后的图片列表（exifReady 由 !exifLoading 提供：EXIF 到齐后自动一次性重排）
 const images = computed(() => {
-  return sortImages(rawImages.value, props.sortField, props.sortOrder)
+  return sortImages(rawImages.value, props.sortField, props.sortOrder, !appState.state.exifLoading)
 })
 
 // 当前模式下的缩略图尺寸
@@ -165,33 +188,55 @@ const rowHeight = computed(() => {
 // thumbnail-size(130) + padding*2(8)
 const stripItemWidth = 130 + 12
 
+// 加载会话计数器：每次 loadImages 自增并生成唯一 session，用于丢弃旧响应/旧事件，
+// 防止快速切换文件夹时旧数据污染。
+let loadSessionCounter = 0
+const currentSession = ref('')
+
 async function loadImages() {
   if (!props.selectedFolder) {
+    currentSession.value = ''
     rawImages.value = []
+    appState.setExifLoading(false)
     return
   }
+  const session = `s${++loadSessionCounter}`
+  currentSession.value = session
   loading.value = true
   try {
-    rawImages.value = await invoke<ImageGroup[]>('list_images', {
+    const result = await invoke<ImageGroup[]>('list_images', {
       dirPath: props.selectedFolder,
     })
+    // 旧响应保护：期间用户已切换文件夹则丢弃结果
+    if (currentSession.value !== session) return
+    rawImages.value = result
     selectedIndex.value = -1
     selectedIndices.value.clear()
     thumbnails.value.clear()
-    loadThumbnailsBatch()
+    // 列表到达：并发启动缩略图与 EXIF 两个批量任务
+    appState.setExifLoading(result.length > 0)
+    loadThumbnailsBatch(session)
+    loadExifBatch(session)
   } catch (e) {
-    console.error('Failed to list images:', e)
-    rawImages.value = []
+    if (currentSession.value === session) {
+      console.error('Failed to list images:', e)
+      rawImages.value = []
+      appState.setExifLoading(false)
+    }
   } finally {
-    loading.value = false
+    if (currentSession.value === session) {
+      loading.value = false
+    }
   }
 }
 
-async function loadThumbnailsBatch() {
-  if (images.value.length === 0) return
+async function loadThumbnailsBatch(session: string) {
+  if (rawImages.value.length === 0) return
 
   const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
-    const { base_name, thumbnail, error } = event.payload
+    const { session_id, base_name, thumbnail, error } = event.payload
+    // 仅处理当前会话的事件，不匹配一律丢弃
+    if (session_id !== session || currentSession.value !== session) return
     if (thumbnail) {
       thumbnails.value.set(base_name, thumbnail)
     } else if (error) {
@@ -199,16 +244,70 @@ async function loadThumbnailsBatch() {
     }
   })
 
-  const filePaths = images.value
+  const filePaths = rawImages.value
     .map(img => img.jpgPath || img.rawPath)
     .filter(path => path !== null) as string[]
 
   try {
-    await invoke('generate_thumbnails_batch', { filePaths })
+    await invoke('generate_thumbnails_batch', { filePaths, sessionId: session })
   } catch (e) {
     console.error('Failed to generate thumbnails batch:', e)
   } finally {
     unlisten()
+  }
+}
+
+// 两段式加载第二阶段：异步补齐 EXIF。
+// 事件渐进填充 + invoke resolve 后对仍缺失的项做补漏回填（不覆盖已有值，
+// 保护加载期间用户写入的评分）。
+async function loadExifBatch(session: string) {
+  const items = rawImages.value
+    .map(img => {
+      const filePath = img.jpgPath || img.rawPath
+      return filePath ? { base_name: img.baseName, file_path: filePath } : null
+    })
+    .filter((x): x is { base_name: string; file_path: string } => x !== null)
+
+  if (items.length === 0) {
+    if (currentSession.value === session) {
+      appState.setExifLoading(false)
+    }
+    return
+  }
+
+  const unlisten = await listen<ExifBatchResult>('exif-ready', (event) => {
+    const payload = event.payload
+    if (payload.session_id !== session || currentSession.value !== session) return
+    if (!payload.exif_info) return
+    const img = rawImages.value.find(i => i.baseName === payload.base_name)
+    // 仅填充仍为 null 的项，不覆盖加载期间用户写入的评分
+    if (img && !img.exifInfo) {
+      img.exifInfo = payload.exif_info
+    }
+  })
+
+  try {
+    const results = await invoke<ExifBatchResult[]>('read_exif_batch', {
+      items,
+      sessionId: session,
+    })
+    if (currentSession.value === session) {
+      // 补漏回填：仅填充 exifInfo 仍为 null 的项
+      for (const r of results) {
+        if (!r.exif_info) continue
+        const img = rawImages.value.find(i => i.baseName === r.base_name)
+        if (img && !img.exifInfo) {
+          img.exifInfo = r.exif_info
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to read exif batch:', e)
+  } finally {
+    unlisten()
+    if (currentSession.value === session) {
+      appState.setExifLoading(false)
+    }
   }
 }
 
@@ -550,8 +649,30 @@ function updateImageRating(rating: number) {
   if (!image) return
 
   const rawIndex = rawImages.value.findIndex(img => img.baseName === image.baseName)
-  if (rawIndex >= 0 && rawImages.value[rawIndex].exifInfo) {
-    rawImages.value[rawIndex].exifInfo!.rating = rating
+  if (rawIndex < 0) return
+
+  const target = rawImages.value[rawIndex]
+  if (target.exifInfo) {
+    target.exifInfo.rating = rating
+  } else {
+    // EXIF 尚未加载完成时，创建仅含 rating 的 ExifInfo，避免评分静默丢失
+    target.exifInfo = {
+      datetime: null,
+      gpsLatitude: null,
+      gpsLongitude: null,
+      cameraMake: null,
+      cameraModel: null,
+      lensModel: null,
+      focalLength: null,
+      shutterSpeed: null,
+      aperture: null,
+      iso: null,
+      rating,
+      imageWidth: null,
+      imageHeight: null,
+      orientation: null,
+      fileCreatedTime: null,
+    }
   }
 }
 
@@ -697,6 +818,12 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       }"
     />
 
+    <!-- EXIF 加载中轻量提示（到齐后会有一次排序重排，此提示让用户有预期） -->
+    <div v-if="appState.state.exifLoading && images.length > 0" class="exif-loading-hint">
+      <RefreshCw class="h-3 w-3 animate-spin" />
+      <span>EXIF 加载中…</span>
+    </div>
+
     <ContextMenu
       :visible="menuState.visible"
       :x="menuState.x"
@@ -823,5 +950,24 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   background: oklch(from var(--primary) l c h / 0.12);
   border-radius: 3px;
   z-index: 100;
+}
+
+/* EXIF 加载中轻量角标提示 */
+.exif-loading-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: oklch(from var(--secondary) l c h / 0.9);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-xs, 11px);
+  pointer-events: none;
+  user-select: none;
 }
 </style>

@@ -20,6 +20,7 @@ interface AppState {
   sortField: SortField
   sortOrder: SortOrder
   viewMode: ViewMode
+  exifLoading: boolean
   confirmDialog: ConfirmDialogState
 }
 
@@ -31,6 +32,7 @@ const state = reactive<AppState>({
   sortField: 'name',
   sortOrder: 'asc',
   viewMode: 'browse',
+  exifLoading: false,
   confirmDialog: {
     visible: false,
     title: '',
@@ -73,6 +75,10 @@ export function useAppState() {
     state.viewMode = mode
   }
 
+  function setExifLoading(loading: boolean) {
+    state.exifLoading = loading
+  }
+
   function showConfirmDialog(
     title: string,
     message: string,
@@ -96,6 +102,7 @@ export function useAppState() {
     setSortField,
     setSortOrder,
     setViewMode,
+    setExifLoading,
     showConfirmDialog,
     hideConfirmDialog,
   }

@@ -64,27 +64,56 @@ fn read_image_dimensions(file_path: &Path, ext: Option<&str>) -> Option<(u32, u3
     use std::io::Cursor;
 
     match ext {
-        // RAF：image crate 不支持该容器，从内嵌 JPEG 读取尺寸
+        // RAF：image crate 不支持该容器，仅读内嵌 JPEG 前缀从头部解析尺寸
         Some("raf") => {
-            use crate::services::raw_decoders::raf_decoder::RafDecoder;
-            let decoder = RafDecoder::new(file_path).ok()?;
-            let reader = image::ImageReader::new(Cursor::new(&decoder.jpeg.data))
+            use crate::services::raw_decoders::raf_decoder::{JpegData, RafHeader};
+            const RAF_PREFIX_LEN: usize = 512 * 1024;
+            let header = RafHeader::parse(file_path).ok()?;
+            let jpeg = JpegData::extract_prefix(
+                file_path,
+                header.offset_jpg_offset,
+                header.offset_jpg_length,
+                RAF_PREFIX_LEN,
+            )
+            .ok()?;
+            let reader = image::ImageReader::new(Cursor::new(&jpeg.data))
                 .with_guessed_format()
                 .ok()?;
             reader.into_dimensions().ok()
         }
-        // DNG：优先使用解码器从 IFD 解析出的预览图尺寸，其次从内嵌预览 JPEG 读取
+        // DNG：仅解析 IFD 链，优先用 tag 256/257 的预览尺寸，其次从预览前缀读取
         Some("dng") => {
-            use crate::services::raw_decoders::dng_decoder::DngDecoder;
-            let decoder = DngDecoder::new(file_path).ok()?;
-            if decoder.preview.width > 0 && decoder.preview.height > 0 {
-                return Some((decoder.preview.width, decoder.preview.height));
-            }
-            if !decoder.preview.data.is_empty() {
-                let reader = image::ImageReader::new(Cursor::new(&decoder.preview.data))
-                    .with_guessed_format()
-                    .ok()?;
-                return reader.into_dimensions().ok();
+            use crate::services::raw_decoders::dng_decoder::{
+                DngDecoder, DngIfdChain, DngPreviewData,
+            };
+            const DNG_PREFIX_LEN: usize = 512 * 1024;
+            let DngIfdChain {
+                header,
+                main_ifd,
+                sub_ifds,
+            } = DngDecoder::parse_ifds(file_path).ok()?;
+            for ifd in std::iter::once(&main_ifd).chain(sub_ifds.iter()) {
+                let preview = match DngPreviewData::extract_prefix(
+                    file_path,
+                    ifd,
+                    header.byte_order,
+                    DNG_PREFIX_LEN,
+                ) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                if preview.width > 0 && preview.height > 0 {
+                    return Some((preview.width, preview.height));
+                }
+                if !preview.data.is_empty() {
+                    if let Ok(reader) = image::ImageReader::new(Cursor::new(&preview.data))
+                        .with_guessed_format()
+                    {
+                        if let Ok(dims) = reader.into_dimensions() {
+                            return Some(dims);
+                        }
+                    }
+                }
             }
             None
         }

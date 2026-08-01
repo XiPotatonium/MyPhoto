@@ -7,6 +7,7 @@ use super::validate_file_path;
 
 #[derive(serde::Serialize, Clone)]
 struct ThumbnailResult {
+    session_id: String,
     base_name: String,
     thumbnail: Option<String>,
     error: Option<String>,
@@ -16,6 +17,7 @@ struct ThumbnailResult {
 pub async fn generate_thumbnails_batch(
     app: AppHandle,
     file_paths: Vec<String>,
+    session_id: String,
 ) -> Result<(), AppError> {
     use futures::stream::{self, StreamExt};
     use std::sync::Arc;
@@ -23,11 +25,13 @@ pub async fn generate_thumbnails_batch(
 
     // 限制并发数，避免大量文件同时生成缩略图导致资源耗尽
     let semaphore = Arc::new(Semaphore::new(8));
+    let session_id = Arc::new(session_id);
 
     stream::iter(file_paths)
         .map(|file_path| {
             let app_handle = app.clone();
             let sem = semaphore.clone();
+            let session_id = session_id.clone();
             async move {
                 // 获取信号量许可，限制并发上限
                 let _permit = sem.acquire().await.unwrap();
@@ -43,11 +47,13 @@ pub async fn generate_thumbnails_batch(
                 let result = if path.exists() && path.is_file() {
                     match thumbnail_service::generate_thumbnail(&path).await {
                         Ok(thumb) => ThumbnailResult {
+                            session_id: (*session_id).clone(),
                             base_name: base_name.clone(),
                             thumbnail: Some(thumb),
                             error: None,
                         },
                         Err(e) => ThumbnailResult {
+                            session_id: (*session_id).clone(),
                             base_name: base_name.clone(),
                             thumbnail: None,
                             error: Some(e.to_string()),
@@ -55,6 +61,7 @@ pub async fn generate_thumbnails_batch(
                     }
                 } else {
                     ThumbnailResult {
+                        session_id: (*session_id).clone(),
                         base_name: base_name.clone(),
                         thumbnail: None,
                         error: Some("File not found".to_string()),
