@@ -82,11 +82,10 @@ pub async fn generate_thumbnails_batch(
 #[tauri::command]
 pub async fn read_image_file(file_path: String) -> Result<tauri::ipc::Response, AppError> {
     let path = validate_file_path(&file_path)?;
-    // 使用 spawn_blocking 包裹同步文件 I/O，避免阻塞 tokio async runtime
-    let bytes = tokio::task::spawn_blocking(move || {
-        std::fs::read(&path).map_err(|e| AppError::Io(e))
-    })
-    .await
-    .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))??;
+    // 交由 read_image_bytes 按格式分流：
+    // - jpg/jpeg/png 返回原始文件字节（保留 Ultra HDR gain map 等附加数据）
+    // - RAW(raf/dng/tif/tiff/bmp) 解码后重编码为 JPEG，供浏览器 <img> 渲染
+    // read_image_bytes 内部已按需处理阻塞 I/O，此处直接 await
+    let bytes = thumbnail_service::read_image_bytes(&path).await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
