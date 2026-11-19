@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::exif::{ExifInfo, ExifWriteRequest};
 use crate::services::exif_service;
 use tauri::{AppHandle, Emitter};
-use super::validate_file_path;
+use super::{validate_file_path, is_load_session_active};
 
 #[tauri::command]
 pub fn read_exif(file_path: String) -> Result<ExifInfo, AppError> {
@@ -61,7 +61,8 @@ pub async fn read_exif_batch(
     session_id: String,
 ) -> Result<Vec<ExifBatchResult>, AppError> {
     let results = tokio::task::spawn_blocking(move || {
-        if items.is_empty() {
+        // 会话已失效（用户切换到别的文件夹）时直接放弃整批读取
+        if items.is_empty() || !is_load_session_active(session_id.as_str()) {
             return Vec::new();
         }
 
@@ -73,6 +74,7 @@ pub async fn read_exif_batch(
         if num_threads <= 1 {
             return items
                 .iter()
+                .take_while(|_| is_load_session_active(session_id.as_str()))
                 .map(|item| read_one_exif(&app, &session_id, item))
                 .collect::<Vec<_>>();
         }
@@ -85,10 +87,14 @@ pub async fn read_exif_batch(
                 .chunks(chunk_size)
                 .map(|chunk| {
                     s.spawn(move || {
-                        chunk
-                            .iter()
-                            .map(|item| read_one_exif(app, session_id, item))
-                            .collect::<Vec<_>>()
+                        let mut out = Vec::with_capacity(chunk.len());
+                        for item in chunk {
+                            if !is_load_session_active(session_id) {
+                                break;
+                            }
+                            out.push(read_one_exif(app, session_id, item));
+                        }
+                        out
                     })
                 })
                 .collect();

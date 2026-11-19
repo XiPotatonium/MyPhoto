@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::services::thumbnail_service;
 use tauri::{AppHandle, Emitter};
-use super::validate_file_path;
+use super::{validate_file_path, is_load_session_active};
 
 #[derive(serde::Serialize, Clone)]
 struct ThumbnailResult {
@@ -26,15 +26,29 @@ pub async fn generate_thumbnails_batch(
     // 限制并发数，避免大量文件同时生成缩略图导致资源耗尽
     let semaphore = Arc::new(Semaphore::new(8));
     let session_id = Arc::new(session_id);
+    let session_guard = Arc::clone(&session_id);
 
     stream::iter(file_paths)
+        // 用户已切到别的文件夹时立即终止整条任务流，不再继续解码剩余文件。
+        // 只靠前端过滤事件是不够的：旧任务仍会占满 8 个并发槽与磁盘 IO。
+        .take_while(move |_| {
+            let active = is_load_session_active(session_guard.as_str());
+            async move { active }
+        })
         .map(|file_path| {
             let app_handle = app.clone();
             let sem = semaphore.clone();
             let session_id = session_id.clone();
             async move {
+                if !is_load_session_active(session_id.as_str()) {
+                    return;
+                }
                 // 获取信号量许可，限制并发上限
                 let _permit = sem.acquire().await.unwrap();
+                // 等待许可期间可能已切换文件夹
+                if !is_load_session_active(session_id.as_str()) {
+                    return;
+                }
 
                 let path = PathBuf::from(&file_path);
                 let base_name = path

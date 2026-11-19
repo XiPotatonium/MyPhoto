@@ -27,44 +27,59 @@ fn is_raw_ext(ext: &str) -> bool {
 /// - APP1 XMP 段中包含 "hdrgm:Version"（Adobe gain map）
 /// 解析失败一律视为非 HDR
 fn is_hdr_jpeg(path: &Path) -> bool {
-    use std::io::Read;
+    use std::io::{BufReader, Read};
 
-    // 头部段（含 XMP）通常在前几十 KB，限制读取量避免大文件开销
+    // 逐段流式读取头部，遇到 SOS/EOI 立即停止。
+    // 旧实现用 take(512KB).read_to_end() 会把整个上限读满才解析，
+    // 而实际头部段通常只有几十 KB（实测样例 76.5 KB），大文件夹中会放大成数百 MB 无效 IO。
     const HEADER_LIMIT: u64 = 512 * 1024;
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return false,
     };
-    let mut buf = Vec::new();
-    if file.take(HEADER_LIMIT).read_to_end(&mut buf).is_err() {
+    let mut reader = BufReader::new(file.take(HEADER_LIMIT));
+
+    let mut soi = [0u8; 2];
+    if reader.read_exact(&mut soi).is_err() || soi != [0xFF, 0xD8] {
         return false;
     }
 
-    if buf.len() < 4 || buf[0] != 0xFF || buf[1] != 0xD8 {
-        return false;
-    }
-
-    let mut pos = 2;
-    while pos + 4 <= buf.len() {
-        if buf[pos] != 0xFF {
-            break;
+    loop {
+        let mut marker = [0u8; 2];
+        if reader.read_exact(&mut marker).is_err() || marker[0] != 0xFF {
+            return false;
         }
-        let marker = buf[pos + 1];
+
+        // 跳过 JPEG 允许的 0xFF 填充字节
+        let mut code = marker[1];
+        while code == 0xFF {
+            let mut next = [0u8; 1];
+            if reader.read_exact(&mut next).is_err() {
+                return false;
+            }
+            code = next[0];
+        }
+
         // SOS/EOI 之后为压缩数据，头部段解析结束
-        if marker == 0xDA || marker == 0xD9 {
-            break;
+        if code == 0xDA || code == 0xD9 {
+            return false;
         }
-        let len = ((buf[pos + 2] as usize) << 8) | buf[pos + 3] as usize;
+
+        let mut len_buf = [0u8; 2];
+        if reader.read_exact(&mut len_buf).is_err() {
+            return false;
+        }
+        let len = ((len_buf[0] as usize) << 8) | len_buf[1] as usize;
         if len < 2 {
-            break;
+            return false;
         }
-        let data_start = pos + 4;
-        let data_end = (pos + 2 + len).min(buf.len());
-        if data_start > data_end {
-            break;
+
+        let mut data = vec![0u8; len - 2];
+        if reader.read_exact(&mut data).is_err() {
+            return false;
         }
-        let data = &buf[data_start..data_end];
-        let is_hdr = match marker {
+
+        let is_hdr = match code {
             0xE2 => data.starts_with(b"urn:iso:std:iso:ts:21496"),
             0xE1 => {
                 data.starts_with(b"http://ns.adobe.com/xap/1.0/")
@@ -77,9 +92,7 @@ fn is_hdr_jpeg(path: &Path) -> bool {
         if is_hdr {
             return true;
         }
-        pos += 2 + len;
     }
-    false
 }
 
 pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {

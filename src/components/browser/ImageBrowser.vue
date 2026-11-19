@@ -107,6 +107,12 @@ const emit = defineEmits<{
 }>()
 
 const rawImages = ref<ImageGroup[]>([])
+// baseName → ImageGroup 索引：EXIF/缩略图事件回填时用 O(1) 查找替代线性 find，
+// 避免 N 个事件累计成 O(N²) 的字符串比较。
+let imageIndex = new Map<string, ImageGroup>()
+function rebuildImageIndex() {
+  imageIndex = new Map(rawImages.value.map(img => [img.baseName, img]))
+}
 const loading = ref(false)
 const selectedIndex = ref(-1)
 const selectedIndices = ref<Set<number>>(new Set())
@@ -197,6 +203,7 @@ async function loadImages() {
   if (!props.selectedFolder) {
     currentSession.value = ''
     rawImages.value = []
+    imageIndex.clear()
     appState.setExifLoading(false)
     return
   }
@@ -204,23 +211,31 @@ async function loadImages() {
   currentSession.value = session
   loading.value = true
   try {
+    // 带上 sessionId：后端在 list_images 时注册会话，让上一轮遗留的
+    // 缩略图 / EXIF 批量任务立即失效（空文件夹也必定走这次调用）。
     const result = await invoke<ImageGroup[]>('list_images', {
       dirPath: props.selectedFolder,
+      sessionId: session,
     })
     // 旧响应保护：期间用户已切换文件夹则丢弃结果
     if (currentSession.value !== session) return
     rawImages.value = result
+    rebuildImageIndex()
     selectedIndex.value = -1
     selectedIndices.value.clear()
     thumbnails.value.clear()
-    // 列表到达：并发启动缩略图与 EXIF 两个批量任务
+    // 列表到达：并发启动缩略图与 EXIF 两个批量任务。
+    // 取「当前屏幕顺序」的快照投递：后端严格按传入顺序取任务，
+    // 用未排序的 rawImages（HashMap 随机序）会让首屏图片排到队列末尾才解码。
     appState.setExifLoading(result.length > 0)
-    loadThumbnailsBatch(session)
-    loadExifBatch(session)
+    const ordered = images.value.slice()
+    loadThumbnailsBatch(session, ordered)
+    loadExifBatch(session, ordered)
   } catch (e) {
     if (currentSession.value === session) {
       console.error('Failed to list images:', e)
       rawImages.value = []
+      imageIndex.clear()
       appState.setExifLoading(false)
     }
   } finally {
@@ -230,8 +245,8 @@ async function loadImages() {
   }
 }
 
-async function loadThumbnailsBatch(session: string) {
-  if (rawImages.value.length === 0) return
+async function loadThumbnailsBatch(session: string, ordered: ImageGroup[]) {
+  if (ordered.length === 0) return
 
   const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
     const { session_id, base_name, thumbnail, error } = event.payload
@@ -244,9 +259,9 @@ async function loadThumbnailsBatch(session: string) {
     }
   })
 
-  const filePaths = rawImages.value
+  const filePaths = ordered
     .map(img => img.jpgPath || img.rawPath)
-    .filter(path => path !== null) as string[]
+    .filter((p): p is string => p !== null)
 
   try {
     await invoke('generate_thumbnails_batch', { filePaths, sessionId: session })
@@ -260,8 +275,8 @@ async function loadThumbnailsBatch(session: string) {
 // 两段式加载第二阶段：异步补齐 EXIF。
 // 事件渐进填充 + invoke resolve 后对仍缺失的项做补漏回填（不覆盖已有值，
 // 保护加载期间用户写入的评分）。
-async function loadExifBatch(session: string) {
-  const items = rawImages.value
+async function loadExifBatch(session: string, ordered: ImageGroup[]) {
+  const items = ordered
     .map(img => {
       const filePath = img.jpgPath || img.rawPath
       return filePath ? { base_name: img.baseName, file_path: filePath } : null
@@ -279,7 +294,7 @@ async function loadExifBatch(session: string) {
     const payload = event.payload
     if (payload.session_id !== session || currentSession.value !== session) return
     if (!payload.exif_info) return
-    const img = rawImages.value.find(i => i.baseName === payload.base_name)
+    const img = imageIndex.get(payload.base_name)
     // 仅填充仍为 null 的项，不覆盖加载期间用户写入的评分
     if (img && !img.exifInfo) {
       img.exifInfo = payload.exif_info
@@ -295,7 +310,7 @@ async function loadExifBatch(session: string) {
       // 补漏回填：仅填充 exifInfo 仍为 null 的项
       for (const r of results) {
         if (!r.exif_info) continue
-        const img = rawImages.value.find(i => i.baseName === r.base_name)
+        const img = imageIndex.get(r.base_name)
         if (img && !img.exifInfo) {
           img.exifInfo = r.exif_info
         }
@@ -648,10 +663,8 @@ function updateImageRating(rating: number) {
   const image = images.value[selectedIndex.value]
   if (!image) return
 
-  const rawIndex = rawImages.value.findIndex(img => img.baseName === image.baseName)
-  if (rawIndex < 0) return
-
-  const target = rawImages.value[rawIndex]
+  const target = imageIndex.get(image.baseName)
+  if (!target) return
   if (target.exifInfo) {
     target.exifInfo.rating = rating
   } else {
@@ -699,6 +712,7 @@ function removeImages(paths: string[]) {
   })
 
   rawImages.value = newRawImages
+  rebuildImageIndex()
 
   selectedIndices.value.clear()
   selectedIndex.value = -1
