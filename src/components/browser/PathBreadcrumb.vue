@@ -412,16 +412,19 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 0.3.3：路径栏被嵌入 TopToolbar 的中间区域，高度、分隔线、底色
+   都由父级工具栏统一提供；这里保持透明，宽度撑满父级以便折叠计算准确。 */
 .path-bar {
   position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
-  height: 40px;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   padding: 0 var(--spacing-sm);
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
+  background: transparent;
   overflow: hidden;
   white-space: nowrap;
 }

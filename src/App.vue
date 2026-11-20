@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { provide, ref, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { X } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { useAppState } from './stores/appState'
 import { useTheme } from './composables/useTheme'
-import type { ImageGroup } from './types/image'
+import type { ImageGroup, SortField, SortOrder } from './types/image'
+import TitleBar from './components/layout/TitleBar.vue'
+import TopToolbar from './components/layout/TopToolbar.vue'
 import RightPanel from './components/layout/RightPanel.vue'
 import ImageBrowser from './components/browser/ImageBrowser.vue'
 import ImageViewer from './components/viewer/ImageViewer.vue'
@@ -32,8 +33,9 @@ async function writeRating(image: ImageGroup, rating: number): Promise<boolean> 
 const appState = useAppState()
 provide('appState', appState)
 
-// Initialize theme
-const { setTheme } = useTheme()
+// 0.3.3：主题由顶栏按钮切换，这里保留唯一一份 useColorMode 实例，
+// 通过 props 把当前解析后的主题传给工具栏，避免多实例不同步。
+const { resolvedTheme, toggleTheme } = useTheme()
 
 const imageBrowserRef = ref<InstanceType<typeof ImageBrowser> | null>(null)
 
@@ -136,8 +138,7 @@ function handleFolderOpen(path: string) {
   appState.setViewMode('browse')
 }
 
-// 0.3.0：目录树移除后，「设置根目录」迁入原生「文件 → 打开目录」菜单，
-// 空状态里的「打开目录」按钮也复用这里。
+// 0.3.3：打开目录由顶栏左侧的文件夹按钮触发；空状态里的「打开目录」按钮也复用这里。
 async function openRootDirectory() {
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
@@ -197,41 +198,31 @@ function handleDelete() {
   )
 }
 
-let unlistenCallbacks: Array<() => void> = []
-
-onMounted(async () => {
+onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
-
-  // Listen for native menu events
-  const unlistenSortField = await listen<string>('menu-sort-field', (event) => {
-    appState.setSortField(event.payload as 'name' | 'date' | 'rating')
-  })
-  const unlistenSortOrder = await listen<string>('menu-sort-order', (event) => {
-    appState.setSortOrder(event.payload as 'asc' | 'desc')
-  })
-  const unlistenTheme = await listen<string>('menu-theme', (event) => {
-    setTheme(event.payload as 'light' | 'dark')
-  })
-  const unlistenOpenFolder = await listen('menu-open-folder', () => {
-    openRootDirectory()
-  })
-
-  unlistenCallbacks = [
-    unlistenSortField,
-    unlistenSortOrder,
-    unlistenTheme,
-    unlistenOpenFolder,
-  ]
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
-  unlistenCallbacks.forEach((fn) => fn())
 })
 </script>
 
 <template>
   <div class="app-container">
+    <!-- 0.3.3：原生标题栏与菜单栏已移除，改由这两条自定义顶栏承担 -->
+    <TitleBar />
+    <TopToolbar
+      :root-path="appState.state.rootPath"
+      :current-path="appState.state.selectedFolder"
+      :sort-field="appState.state.sortField"
+      :sort-order="appState.state.sortOrder"
+      :theme="resolvedTheme"
+      @navigate="handleFolderOpen"
+      @open-folder="openRootDirectory"
+      @sort-field="(v: SortField) => appState.setSortField(v)"
+      @sort-order="(v: SortOrder) => appState.setSortOrder(v)"
+      @toggle-theme="toggleTheme"
+    />
     <div
       :class="[
         'main-layout',
@@ -256,7 +247,6 @@ onUnmounted(() => {
             ref="imageBrowserRef"
             :mode="browserMode"
             :selected-folder="appState.state.selectedFolder"
-            :root-path="appState.state.rootPath"
             :sort-field="appState.state.sortField"
             :sort-order="appState.state.sortOrder"
             @image-selected="handleImageSelected"

@@ -13,7 +13,6 @@ import type {
 import { folderKey } from '../../types/folder'
 import ImageThumbnail from './ImageThumbnail.vue'
 import FolderThumbnail from './FolderThumbnail.vue'
-import PathBreadcrumb from './PathBreadcrumb.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import ExifDialog from '../common/ExifDialog.vue'
 import type { ExifWriteRequest } from '../common/ExifDialog.vue'
@@ -100,8 +99,6 @@ interface ThumbnailResult {
 
 const props = withDefaults(defineProps<{
   selectedFolder: string | null
-  // 0.3.0：目录树移除后，路径面包屑以「打开目录」设定的根目录为边界
-  rootPath: string | null
   sortField: SortField
   sortOrder: SortOrder
   mode?: 'grid' | 'strip'
@@ -929,14 +926,7 @@ defineExpose({
     @contextmenu.prevent="onContextMenu"
     @mousedown="onMouseDown"
   >
-    <!-- 0.3.0：可交互路径栏取代左侧目录树（仅浏览视图显示） -->
-    <PathBreadcrumb
-      v-if="mode === 'grid'"
-      :root-path="rootPath"
-      :current-path="selectedFolder"
-      @navigate="(p: string) => emit('folder-open', p)"
-    />
-
+    <!-- 0.3.3：路径栏已提升到 App.vue 的 TopToolbar，与打开目录 / 排序 / 主题同一行 -->
     <!-- Strip 模式：向上收起按钮 -->
     <button
       v-if="mode === 'strip'"
@@ -953,7 +943,7 @@ defineExpose({
         <FolderOpen class="h-12 w-12 text-muted-foreground/50" />
       </div>
       <p class="empty-title">未打开目录</p>
-      <p class="empty-desc">从「文件 → 打开目录」选择一个图库文件夹开始浏览</p>
+      <p class="empty-desc">点击左上角的文件夹按钮，选择一个图库文件夹开始浏览</p>
       <button type="button" class="open-folder-btn" @click="emit('open-folder-requested')">
         <FolderOpen class="h-4 w-4" />
         打开目录
@@ -1164,7 +1154,7 @@ defineExpose({
   background: var(--accent);
 }
 
-/* Grid 模式滚动器：上方多了 40px 路径栏，用 flex 分配剩余高度而不是 100% */
+/* Grid 模式滚动器：用 flex 分配剩余高度而不是写死 100% */
 .scroller {
   flex: 1 1 0;
   min-height: 0;
