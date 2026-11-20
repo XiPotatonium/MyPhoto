@@ -84,6 +84,7 @@
      Layout Sizes
      -------------------------------------------- */
   --thumbnail-size: 130px;
+  /* grid 模式下由 ImageBrowser 按窗口宽度动态覆盖（弹性网格），此处为最大边长 / 回退值 */
   --thumbnail-size-large: 260px;
   --right-panel-width: 300px;
   --splitter-size: 4px;

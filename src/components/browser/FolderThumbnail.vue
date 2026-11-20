@@ -157,13 +157,15 @@ const title = computed(() => `${props.folder.name} · ${props.folder.photoCount}
   font-weight: 500;
 }
 
+/* Large size variant（0.3.2 弹性网格）：与 ImageThumbnail 同一套规则 */
 .folder-thumbnail--large .folder-card {
-  width: var(--thumbnail-size-large);
-  height: var(--thumbnail-size-large);
+  width: min(100%, var(--thumbnail-size-large));
+  height: auto;
+  aspect-ratio: 1 / 1;
 }
 
 .folder-thumbnail--large .folder-label {
-  width: var(--thumbnail-size-large);
+  width: min(100%, var(--thumbnail-size-large));
 }
 
 .folder-thumbnail--large .folder-badge {

@@ -196,26 +196,68 @@ const entries = computed<BrowserEntry[]>(() => [
   })),
 ])
 
-// 当前模式下的缩略图尺寸
-const currentThumbnailSize = computed(() => {
-  return props.mode === 'grid' ? 260 : 130
-})
+/* ------------------------------------------------------------------
+   0.3.2 弹性网格：图标边长随窗口宽度连续变化，任意宽度下满行都紧贴两侧
 
-// 计算每行显示的缩略图数量（仅 grid 模式使用）
-const itemsPerRow = computed(() => {
-  const thumbnailSize = currentThumbnailSize.value
-  const thumbnailPadding = 8
-  const itemTotalWidth = thumbnailSize + thumbnailPadding
-  const gap = 8
-  const padding = 8
-  const availableWidth = containerWidth.value - padding * 2
+   记 W = 网格可视宽度，P = 行左右 padding(8)，G = 列间距(8)，
+   C = 卡片外框额外宽度(padding 4×2 + border 2×2 = 12)，S = 正方形边长，
+   n = 列数。满行恰好铺满时：
 
-  if (availableWidth <= 0 || containerWidth.value === 0) {
-    return 4
+       n·(S + C) + (n−1)·G + 2P = W
+   ⇒   S(n) = (W − 2P − (n−1)·G) / n − C
+
+   列数取 n = ceil((W − 2P + G) / (S_MAX + C + G))：
+   这是「使 S(n) ≤ S_MAX」的最小列数。用 ceil 而不是旧的 floor，
+   保证剩余宽度由放大图标吃掉（S 不会超过上限），而不是留成右侧空白。
+   若 S(n) < S_MIN，说明图标被挤得太小，就减少一列再算（直到 1 列）。
+   最后把 S 夹在 [S_MIN, S_MAX]：单列或极窄窗口时宁可居中留白，
+   也不把图标拉过 260px 或压到 160px 以下。左右 padding 恒为 P，天然对称。
+   ------------------------------------------------------------------ */
+const GRID_GAP = 8
+const GRID_PADDING = 8
+const GRID_CHROME = 12
+const GRID_SIZE_MAX = 260 // 现有边长，作为最大边长
+const GRID_SIZE_MIN = 160 // 最小边长：低于它就减列而不是继续缩小
+
+const gridMetrics = computed(() => {
+  const W = containerWidth.value
+  if (W <= 0) return { columns: 4, thumbSize: GRID_SIZE_MAX }
+
+  const usable = W - GRID_PADDING * 2
+  let columns = Math.max(
+    1,
+    Math.ceil((usable + GRID_GAP) / (GRID_SIZE_MAX + GRID_CHROME + GRID_GAP)),
+  )
+  let thumbSize = 0
+  for (;;) {
+    thumbSize = (usable - (columns - 1) * GRID_GAP) / columns - GRID_CHROME
+    if (thumbSize >= GRID_SIZE_MIN || columns === 1) break
+    columns -= 1
   }
-
-  return Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
+  thumbSize = Math.min(GRID_SIZE_MAX, Math.max(GRID_SIZE_MIN, thumbSize))
+  return { columns, thumbSize }
 })
+
+// 当前模式下的缩略图边长：grid 弹性、strip 固定 130
+const currentThumbnailSize = computed(() => (
+  props.mode === 'grid' ? gridMetrics.value.thumbSize : 130
+))
+
+// 每行显示的条目数（行分组、键盘导航、框选定位都基于它）
+const itemsPerRow = computed(() => gridMetrics.value.columns)
+
+// grid 行用等宽列均分：即使测量有亚像素误差或出现垂直滚动条，
+// 列宽也会自动吸收误差，不会在右侧空出一整列。
+const rowStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${gridMetrics.value.columns}, minmax(0, 1fr))`,
+}))
+
+// 把弹性边长下发到子组件，覆盖 variables.css 里固定的 --thumbnail-size-large
+const gridStyle = computed(() => (
+  props.mode === 'grid'
+    ? { '--thumbnail-size-large': `${gridMetrics.value.thumbSize}px` }
+    : {}
+))
 
 // 展平成模板可直接消费的单元格：联合类型在 Vue 模板里收窄不稳定，
 // 这里预先把 folder / image 拆成可空字段，避免类型断言。
@@ -617,9 +659,36 @@ watch(() => props.mode, (newMode) => {
   }
 })
 
-// 监听容器宽度变化
+// 监听容器宽度变化。
+// 网格行宽实际等于滚动器的 clientWidth（已扣掉垂直滚动条），
+// 用外层 offsetWidth 会把滚动条那 ~15px 算进可用宽度，导致最后一张卡片溢出。
 const browserEl = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
+
+function measureGridWidth() {
+  const scrollerEl = gridScrollerRef.value?.$el as HTMLElement | undefined
+  const width = scrollerEl?.clientWidth ?? browserEl.value?.clientWidth ?? 0
+  if (width > 0 && width !== containerWidth.value) {
+    containerWidth.value = width
+  }
+}
+
+// 目录内容 / 模式切换会决定滚动条是否出现，DOM 稳定后重新量一次
+watch([() => props.mode, () => entries.value.length], () => {
+  nextTick(measureGridWidth)
+})
+
+// RecycleScroller 只 watch items / sizes，不会监听 item-size 变化。
+// 列数不变但窗口变宽时行高会变，必须手动刷新虚拟滚动的行位置，
+// 否则 transform 仍按旧行高计算，行与行之间会出现空隙或重叠。
+watch(rowHeight, () => {
+  nextTick(() => {
+    const scroller = gridScrollerRef.value as unknown as {
+      updateVisibleItems?: (checkItem: boolean) => void
+    } | null
+    scroller?.updateVisibleItems?.(true)
+  })
+})
 
 // 拖拽框选：鼠标按下
 function onMouseDown(e: MouseEvent) {
@@ -747,12 +816,8 @@ function onKeyDown(e: KeyboardEvent) {
 
 onMounted(() => {
   if (browserEl.value) {
-    containerWidth.value = browserEl.value.offsetWidth
-    resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        containerWidth.value = entry.contentRect.width
-      }
-    })
+    measureGridWidth()
+    resizeObserver = new ResizeObserver(() => measureGridWidth())
     resizeObserver.observe(browserEl.value)
   }
   window.addEventListener('keydown', onKeyDown)
@@ -860,6 +925,7 @@ defineExpose({
   <div
     ref="browserEl"
     class="image-browser"
+    :style="gridStyle"
     @contextmenu.prevent="onContextMenu"
     @mousedown="onMouseDown"
   >
@@ -916,7 +982,7 @@ defineExpose({
       direction="vertical"
       v-slot="{ item }"
     >
-      <div class="thumbnail-row">
+      <div class="thumbnail-row" :style="rowStyle">
         <template v-for="cell in item.cells" :key="cell.key">
           <FolderThumbnail
             v-if="cell.kind === 'folder' && cell.folder"
@@ -1108,13 +1174,14 @@ defineExpose({
   padding: var(--spacing-sm) 0;
 }
 
+/* 等宽列：列数由 gridMetrics 计算，列宽 = (W - 2P - (n-1)G) / n。
+   卡片撑满列，内部正方形取 min(100%, 弹性边长)，所以满行左右都只留 8px。 */
 .thumbnail-row {
-  display: flex;
+  display: grid;
   gap: var(--spacing-sm);
   padding: 0 var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
   width: 100%;
-  justify-content: flex-start;
 }
 
 /* Strip 模式：横向滚动 (RecycleScroller horizontal) */

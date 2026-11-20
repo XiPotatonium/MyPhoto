@@ -156,14 +156,18 @@ const emit = defineEmits<{
   font-weight: 600;
 }
 
-/* Large size variant */
+/* Large size variant（0.3.2 弹性网格）。
+   --thumbnail-size-large 由 ImageBrowser 按窗口宽度实时计算；
+   再取 min(100%, …) 让列宽吸收测量误差，避免极窄窗口溢出。
+   用 aspect-ratio 保持正方形，宽度变化时高度同步跟随。 */
 .image-thumbnail--large .thumb-container {
-  width: var(--thumbnail-size-large);
-  height: var(--thumbnail-size-large);
+  width: min(100%, var(--thumbnail-size-large));
+  height: auto;
+  aspect-ratio: 1 / 1;
 }
 
 .image-thumbnail--large .thumb-label {
-  width: var(--thumbnail-size-large);
+  width: min(100%, var(--thumbnail-size-large));
 }
 
 /* Rating badge */
