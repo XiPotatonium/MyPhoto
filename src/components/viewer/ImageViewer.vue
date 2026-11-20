@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { ImageOff, Loader2, ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { ImageOff, Info, Loader2, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
 import type { ImageGroup } from '../../types/image'
@@ -9,6 +9,12 @@ import type { ImageGroup } from '../../types/image'
 const props = defineProps<{
   image: ImageGroup | null
   format: 'jpg' | 'raw'
+  // 右侧详情面板是否已展开，用于高亮 i 按钮
+  infoActive?: boolean
+}>()
+
+const emit = defineEmits<{
+  'info-toggle': []
 }>()
 
 const viewportRef = ref<HTMLDivElement>()
@@ -285,6 +291,19 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
         >
           <ZoomIn class="h-4 w-4" />
         </Button>
+        <!-- 0.3.0：缩放控件右侧的图片信息开关 -->
+        <span class="viewer-controls-divider" aria-hidden="true" />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          class="viewer-info-btn"
+          :class="{ 'viewer-info-active': infoActive }"
+          :title="infoActive ? '收起图片信息' : '查看图片信息'"
+          :aria-label="infoActive ? '收起图片信息' : '查看图片信息'"
+          @click="emit('info-toggle')"
+        >
+          <Info class="h-4 w-4" />
+        </Button>
       </ButtonGroup>
     </div>
 
@@ -373,6 +392,20 @@ watch(() => [props.image, props.format], loadImage, { immediate: true })
 
 .viewer-scale-active .viewer-scale-text {
   color: var(--primary);
+}
+
+.viewer-controls-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  flex-shrink: 0;
+  background: var(--border);
+}
+
+.viewer-info-btn.viewer-info-active,
+.viewer-info-btn.viewer-info-active:hover {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
 }
 
 .viewer-empty-state {

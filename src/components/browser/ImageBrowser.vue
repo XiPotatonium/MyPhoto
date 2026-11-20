@@ -102,9 +102,17 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'image-selected': [image: ImageGroup]
   'image-dblclick': [image: ImageGroup]
+  // 0.3.0：缩略图右下角 i 按钮，交由 App 决定展开右侧详情面板
+  'info-requested': [image: ImageGroup]
   'delete-requested': []
   'collapse-up': []
 }>()
+
+// 详情面板已展开且正在展示这张图时，让它的 i 按钮常显高亮
+function isInfoActive(img: ImageGroup): boolean {
+  return appState.state.infoPanelVisible
+    && appState.state.currentImage?.baseName === img.baseName
+}
 
 const rawImages = ref<ImageGroup[]>([])
 // baseName → ImageGroup 索引：EXIF/缩略图事件回填时用 O(1) 查找替代线性 find，
@@ -792,8 +800,10 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
           :selected="selectedIndices.has(imgData.globalIndex)"
           :data-index="imgData.globalIndex"
           size="large"
+          :info-active="isInfoActive(imgData.img)"
           @click="(e: MouseEvent) => onImageClick(imgData.globalIndex, e)"
           @dblclick="() => onImageDblClick(imgData.globalIndex)"
+          @info-click="(img: ImageGroup) => emit('info-requested', img)"
         />
       </div>
     </RecycleScroller>
@@ -815,8 +825,10 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
         :thumbnail="thumbnails.get(item.baseName) || null"
         :selected="selectedIndices.has(index)"
         size="normal"
+        :info-active="isInfoActive(item)"
         @click="(e: MouseEvent) => onImageClick(index, e)"
         @dblclick="() => onImageDblClick(index)"
+        @info-click="(img: ImageGroup) => emit('info-requested', img)"
       />
     </RecycleScroller>
 

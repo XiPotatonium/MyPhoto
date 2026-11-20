@@ -21,6 +21,8 @@ interface AppState {
   sortOrder: SortOrder
   viewMode: ViewMode
   exifLoading: boolean
+  // 0.3.0：右侧详情页不再常驻，由缩略图 / 大图控件上的 i 按钮按需展开
+  infoPanelVisible: boolean
   confirmDialog: ConfirmDialogState
 }
 
@@ -33,6 +35,7 @@ const state = reactive<AppState>({
   sortOrder: 'asc',
   viewMode: 'browse',
   exifLoading: false,
+  infoPanelVisible: false,
   confirmDialog: {
     visible: false,
     title: '',
@@ -79,6 +82,14 @@ export function useAppState() {
     state.exifLoading = loading
   }
 
+  function setInfoPanelVisible(visible: boolean) {
+    state.infoPanelVisible = visible
+  }
+
+  function toggleInfoPanel() {
+    state.infoPanelVisible = !state.infoPanelVisible
+  }
+
   function showConfirmDialog(
     title: string,
     message: string,
@@ -103,6 +114,8 @@ export function useAppState() {
     setSortOrder,
     setViewMode,
     setExifLoading,
+    setInfoPanelVisible,
+    toggleInfoPanel,
     showConfirmDialog,
     hideConfirmDialog,
   }
