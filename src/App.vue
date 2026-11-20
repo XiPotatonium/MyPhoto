@@ -124,11 +124,6 @@ function handleInfoRequested(image: ImageGroup) {
   appState.setInfoPanelVisible(true)
 }
 
-// 大图右上角 i 按钮：直接切换面板显隐
-function handleInfoToggle() {
-  appState.toggleInfoPanel()
-}
-
 function handleInfoClose() {
   appState.setInfoPanelVisible(false)
 }
@@ -252,8 +247,6 @@ onUnmounted(() => {
           <ImageViewer
             :image="appState.state.currentImage"
             :format="appState.state.currentFormat"
-            :info-active="appState.state.infoPanelVisible"
-            @info-toggle="handleInfoToggle"
           />
         </div>
 
@@ -277,9 +270,9 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 右列：照片信息。0.3.0 起不再常驻，由缩略图 / 大图控件上的 i 按钮按需展开。
+      <!-- 右列：照片信息。0.3.0 起不再常驻，由缩略图上的 i 按钮按需展开。
            用 flex 宽度伸缩挤压中间区域，而不是 absolute 浮层覆盖，保证不遮挡图片；
-           大图状态下底部截止到横向浏览器上沿，把下方宽度让给 strip。 -->
+           大图状态下底部恒截止到横向浏览器上沿，把下方宽度让给 strip。 -->
       <div
         :class="[
           'right-panel-container',
@@ -367,20 +360,23 @@ onUnmounted(() => {
   min-width: 0;
   overflow: hidden;
   /* 容器只做布局占位：不画底色、不抬层级、不拦截鼠标。
-     否则视图切换动画期间（strip 已用负 margin 伸到右侧、容器高度还在过渡时），
-     这块整列白底会盖住最右侧的缩略图，看起来像「小图被白色区域遮挡」。 */
+     基础状态不带 transition —— 收起时宽度立即归零，根本不产生会露白的中间帧。 */
   background: transparent;
   pointer-events: none;
-  transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  visibility: hidden;
 }
 
 .right-panel-container--open {
   width: var(--right-panel-width);
+  visibility: visible;
+  /* 只有展开时做抽屉拉开动画 */
+  transition: width 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 大图状态：面板底部截止到横向浏览器上沿，不再贯穿整列高度，
-   这样 strip 可以向右延伸到窗口右边缘。 */
-.main-layout--view.main-layout--info-open .right-panel-container {
+/* 大图状态下容器高度恒截止到横向浏览器上沿，与面板开合无关：
+   否则「收起」移除 info-open 类的瞬间 height 会跳回 100%，
+   整列跨到 strip 上方，动画中间帧出现白色遮挡。 */
+.main-layout--view .right-panel-container {
   height: calc(100% - var(--strip-height));
 }
 
@@ -479,14 +475,22 @@ onUnmounted(() => {
 }
 
 .browser-area--strip {
+  position: relative;
+  /* strip 始终绘制在右列之上，任何残留的白色都不可能盖住缩略图 */
+  z-index: 1;
   flex: 0 0 var(--strip-height);
   background: var(--background);
   border-top: 1px solid var(--border);
 }
 
 /* 大图 + 面板展开：右面板已让出下方高度，strip 向右补足右列宽度，
-   横向浏览器因此能一直延伸到窗口右边缘，且不遮挡上方大图。 */
+   横向浏览器因此能一直延伸到窗口右边缘，且不遮挡上方大图。
+   transition 只写在展开态：收起时规则连同过渡一起消失，margin 立即回 0，
+   与右列宽度立即归零严格同步，不会出现 strip 先缩、右列后缩的白色空隙。 */
 .main-layout--view.main-layout--info-open .browser-area--strip {
   margin-right: calc(-1 * var(--right-panel-width));
+  transition: flex-grow 350ms cubic-bezier(0.4, 0, 0.2, 1),
+              flex-basis 350ms cubic-bezier(0.4, 0, 0.2, 1),
+              margin-right 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 </style>
