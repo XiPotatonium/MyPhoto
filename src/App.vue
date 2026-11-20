@@ -7,9 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useAppState } from './stores/appState'
 import { useTheme } from './composables/useTheme'
 import type { ImageGroup } from './types/image'
-import LeftPanel from './components/layout/LeftPanel.vue'
 import RightPanel from './components/layout/RightPanel.vue'
-import DirectoryTree from './components/directory/DirectoryTree.vue'
 import ImageBrowser from './components/browser/ImageBrowser.vue'
 import ImageViewer from './components/viewer/ImageViewer.vue'
 import FormatTabBar from './components/viewer/FormatTabBar.vue'
@@ -135,11 +133,31 @@ function handleInfoClose() {
   appState.setInfoPanelVisible(false)
 }
 
-function handleFolderSelected(path: string) {
+// 0.3.0：双击文件夹卡片 / 点击路径面包屑 → 进入该目录。
+// 大图状态下还会切回文件浏览器模式。
+function handleFolderOpen(path: string) {
   appState.setSelectedFolder(path)
   appState.setCurrentImage(null)
-  if (appState.state.viewMode === 'view') {
+  appState.setViewMode('browse')
+}
+
+// 0.3.0：目录树移除后，「设置根目录」迁入原生「文件 → 打开目录」菜单，
+// 空状态里的「打开目录」按钮也复用这里。
+async function openRootDirectory() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const selected = await open({ directory: true, multiple: false })
+    if (!selected) return
+    const path = selected as string
+    const sameFolder = appState.state.selectedFolder === path
+    appState.setRootPath(path)
+    appState.setSelectedFolder(path)
+    appState.setCurrentImage(null)
     appState.setViewMode('browse')
+    // 重复打开同一目录时 selectedFolder 不变，watch 不会触发，手动刷新一次
+    if (sameFolder) imageBrowserRef.value?.reload()
+  } catch (e) {
+    console.error('Failed to open folder dialog:', e)
   }
 }
 
@@ -199,8 +217,16 @@ onMounted(async () => {
   const unlistenTheme = await listen<string>('menu-theme', (event) => {
     setTheme(event.payload as 'light' | 'dark')
   })
+  const unlistenOpenFolder = await listen('menu-open-folder', () => {
+    openRootDirectory()
+  })
 
-  unlistenCallbacks = [unlistenSortField, unlistenSortOrder, unlistenTheme]
+  unlistenCallbacks = [
+    unlistenSortField,
+    unlistenSortOrder,
+    unlistenTheme,
+    unlistenOpenFolder,
+  ]
 })
 
 onUnmounted(() => {
@@ -218,17 +244,7 @@ onUnmounted(() => {
         appState.state.infoPanelVisible && 'main-layout--info-open',
       ]"
     >
-      <!-- 左列：目录树，占满整列 -->
-      <div class="left-panel-container">
-        <LeftPanel>
-          <DirectoryTree
-            :root-path="appState.state.rootPath"
-            @folder-selected="handleFolderSelected"
-            @root-changed="appState.setRootPath"
-          />
-        </LeftPanel>
-      </div>
-
+      <!-- 0.3.0：左侧目录树已移除，文件浏览器自身承担目录导航 -->
       <!-- 中列：通过动画切换布局 -->
       <div class="center-panel-container">
         <!-- 图像查看区域：browse 模式下高度 0，view 模式下占满上方 -->
@@ -247,11 +263,14 @@ onUnmounted(() => {
             ref="imageBrowserRef"
             :mode="browserMode"
             :selected-folder="appState.state.selectedFolder"
+            :root-path="appState.state.rootPath"
             :sort-field="appState.state.sortField"
             :sort-order="appState.state.sortOrder"
             @image-selected="handleImageSelected"
             @image-dblclick="handleImageDblClick"
             @info-requested="handleInfoRequested"
+            @folder-open="handleFolderOpen"
+            @open-folder-requested="openRootDirectory"
             @delete-requested="handleDelete"
             @collapse-up="handleCollapseUp"
           />
@@ -324,15 +343,6 @@ onUnmounted(() => {
   overflow: hidden;
   /* 横向浏览器高度：右面板底部与 strip 共用这个界限 */
   --strip-height: 190px;
-}
-
-.left-panel-container {
-  width: var(--left-panel-width);
-  min-width: 200px;
-  max-width: 500px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
 }
 
 .center-panel-container {

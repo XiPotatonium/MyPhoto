@@ -1,4 +1,3 @@
-pub mod directory_scanner;
 pub mod exif_service;
 pub mod image_cache;
 pub mod image_processor;

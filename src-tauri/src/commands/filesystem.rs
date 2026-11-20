@@ -1,13 +1,21 @@
 use crate::error::AppError;
-use crate::models::directory::DirectoryNode;
-use crate::models::image::ImageGroup;
-use crate::services::{directory_scanner, image_processor};
-use super::{validate_dir_path};
+use crate::models::image::{DirectoryContents, ImageGroup};
+use crate::services::image_processor;
+use super::validate_dir_path;
 
+/// 0.3.0：文件浏览器改为直接浏览目录，一次返回子文件夹与图片组。
+/// 注册加载会话的逻辑与 list_images 一致，保证切换目录时旧批量任务立即失效。
 #[tauri::command]
-pub fn scan_directory_tree(root_path: String) -> Result<DirectoryNode, AppError> {
-    let path = validate_dir_path(&root_path)?;
-    directory_scanner::scan_directory(&path).map_err(AppError::from)
+pub async fn list_directory_contents(
+    dir_path: String,
+    session_id: String,
+) -> Result<DirectoryContents, AppError> {
+    super::begin_load_session(&session_id);
+    let path = validate_dir_path(&dir_path)?;
+    tokio::task::spawn_blocking(move || image_processor::list_directory_contents(&path))
+        .await
+        .map_err(|e| AppError::General(format!("Task join error: {}", e)))?
+        .map_err(AppError::from)
 }
 
 #[tauri::command]

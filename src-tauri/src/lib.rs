@@ -47,9 +47,14 @@ fn set_theme(items: &[MenuItem<tauri::Wry>; 2], theme: &str) -> usize {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            // macOS 要求第一个子菜单放在应用名下
-            let about_menu = SubmenuBuilder::new(app, "MyPhoto")
-                .quit()
+            // 菜单文案统一为中文。预定义 .quit() 的文本由系统语言决定，
+            // 英文系统上会显示 "Quit" 造成中英混排，改用自定义项。
+            let quit_item = MenuItemBuilder::new("退出")
+                .id("quit")
+                .build(app)?;
+            // macOS 会把第一个子菜单的标题替换为应用名
+            let about_menu = SubmenuBuilder::new(app, "应用")
+                .item(&quit_item)
                 .build()?;
 
             let sort_name = MenuItemBuilder::new("✓ 文件名")
@@ -94,13 +99,22 @@ pub fn run() {
                 .item(&theme_dark)
                 .build()?;
 
-            let settings_menu = SubmenuBuilder::new(app, "Settings")
+            // 0.3.0：目录树移除后，「设置根目录」迁入原生文件菜单
+            let open_folder = MenuItemBuilder::new("打开目录…")
+                .id("open_folder")
+                .build(app)?;
+            let file_menu = SubmenuBuilder::new(app, "文件")
+                .item(&open_folder)
+                .build()?;
+
+            let settings_menu = SubmenuBuilder::new(app, "设置")
                 .item(&sort_menu)
                 .item(&theme_menu)
                 .build()?;
 
             let menu = MenuBuilder::new(app)
                 .item(&about_menu)
+                .item(&file_menu)
                 .item(&settings_menu)
                 .build()?;
 
@@ -108,6 +122,12 @@ pub fn run() {
 
             app.on_menu_event(move |app_handle, event| {
                 match event.id().0.as_str() {
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    "open_folder" => {
+                        let _ = app_handle.emit_to("main", "menu-open-folder", "");
+                    }
                     "sort_name" => {
                         set_sort_field(&sort_field_items, "name");
                         let _ = app_handle.emit_to("main", "menu-sort-field", "name");
@@ -145,7 +165,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            commands::filesystem::scan_directory_tree,
+            commands::filesystem::list_directory_contents,
             commands::filesystem::list_images,
             commands::filesystem::select_root_directory,
             commands::thumbnail::generate_thumbnails_batch,

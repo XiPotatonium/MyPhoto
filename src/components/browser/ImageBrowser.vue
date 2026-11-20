@@ -5,7 +5,15 @@ import { listen } from '@tauri-apps/api/event'
 import { FolderOpen, Image, RefreshCw, ChevronUp } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder, ExifBatchResult } from '../../types/image'
 import type { ExifInfo } from '../../types/exif'
+import type {
+  BrowserEntry,
+  DirectoryContents,
+  FolderItem,
+} from '../../types/folder'
+import { folderKey } from '../../types/folder'
 import ImageThumbnail from './ImageThumbnail.vue'
+import FolderThumbnail from './FolderThumbnail.vue'
+import PathBreadcrumb from './PathBreadcrumb.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import ExifDialog from '../common/ExifDialog.vue'
 import type { ExifWriteRequest } from '../common/ExifDialog.vue'
@@ -92,6 +100,8 @@ interface ThumbnailResult {
 
 const props = withDefaults(defineProps<{
   selectedFolder: string | null
+  // 0.3.0：目录树移除后，路径面包屑以「打开目录」设定的根目录为边界
+  rootPath: string | null
   sortField: SortField
   sortOrder: SortOrder
   mode?: 'grid' | 'strip'
@@ -104,6 +114,10 @@ const emit = defineEmits<{
   'image-dblclick': [image: ImageGroup]
   // 0.3.0：缩略图右下角 i 按钮，交由 App 决定展开右侧详情面板
   'info-requested': [image: ImageGroup]
+  // 双击文件夹 / 点击面包屑：由 App 切换当前目录
+  'folder-open': [path: string]
+  // 空状态里的「打开目录」按钮
+  'open-folder-requested': []
   'delete-requested': []
   'collapse-up': []
 }>()
@@ -115,6 +129,8 @@ function isInfoActive(img: ImageGroup): boolean {
 }
 
 const rawImages = ref<ImageGroup[]>([])
+// 0.3.0：当前目录的直属子文件夹，与图片一起渲染在网格里
+const folders = ref<FolderItem[]>([])
 // baseName → ImageGroup 索引：EXIF/缩略图事件回填时用 O(1) 查找替代线性 find，
 // 避免 N 个事件累计成 O(N²) 的字符串比较。
 let imageIndex = new Map<string, ImageGroup>()
@@ -156,6 +172,30 @@ const images = computed(() => {
   return sortImages(rawImages.value, props.sortField, props.sortOrder, !appState.state.exifLoading)
 })
 
+// 文件夹没有 EXIF / 评分，一律按名称排序；升降序只影响文件夹内部顺序，
+// 文件夹整体恒在图片之前（资源管理器习惯，也符合 0.3.0 需求）。
+const sortedFolders = computed(() => {
+  const list = [...folders.value].sort((a, b) =>
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+  )
+  if (props.sortOrder === 'desc') list.reverse()
+  return list
+})
+
+// 网格 / strip 共用的统一条目序列。所有选中、导航、框选索引均基于它。
+const entries = computed<BrowserEntry[]>(() => [
+  ...sortedFolders.value.map(folder => ({
+    kind: 'folder' as const,
+    key: folderKey(folder.path),
+    folder,
+  })),
+  ...images.value.map(image => ({
+    kind: 'image' as const,
+    key: image.baseName,
+    image,
+  })),
+])
+
 // 当前模式下的缩略图尺寸
 const currentThumbnailSize = computed(() => {
   return props.mode === 'grid' ? 260 : 130
@@ -177,20 +217,42 @@ const itemsPerRow = computed(() => {
   return Math.max(1, Math.floor((availableWidth + gap) / (itemTotalWidth + gap)))
 })
 
-// 将图片分组成行（grid 模式）
+// 展平成模板可直接消费的单元格：联合类型在 Vue 模板里收窄不稳定，
+// 这里预先把 folder / image 拆成可空字段，避免类型断言。
+interface GridCell {
+  key: string
+  kind: 'folder' | 'image'
+  folder: FolderItem | null
+  image: ImageGroup | null
+  globalIndex: number
+}
+
+function toCell(entry: BrowserEntry, globalIndex: number): GridCell {
+  return {
+    key: entry.key,
+    kind: entry.kind,
+    folder: entry.kind === 'folder' ? entry.folder : null,
+    image: entry.kind === 'image' ? entry.image : null,
+    globalIndex,
+  }
+}
+
+// 将混合条目分组成行（grid 模式）
 const imageRows = computed(() => {
-  const rows: Array<{ index: number; images: Array<{ img: ImageGroup; globalIndex: number }> }> = []
-  for (let i = 0; i < images.value.length; i += itemsPerRow.value) {
+  const rows: Array<{ index: number; cells: GridCell[] }> = []
+  for (let i = 0; i < entries.value.length; i += itemsPerRow.value) {
     rows.push({
       index: i,
-      images: images.value.slice(i, i + itemsPerRow.value).map((img, offset) => ({
-        img,
-        globalIndex: i + offset
-      }))
+      cells: entries.value
+        .slice(i, i + itemsPerRow.value)
+        .map((entry, offset) => toCell(entry, i + offset)),
     })
   }
   return rows
 })
+
+// strip 模式同样展示文件夹（单击无反应、双击进入并切回浏览视图）
+const stripItems = computed(() => entries.value.map((entry, i) => toCell(entry, i)))
 
 // 计算行高度
 // thumbnail + 24(label区) + 4(border*2) + 8(行间距)
@@ -202,15 +264,16 @@ const rowHeight = computed(() => {
 // thumbnail-size(130) + padding*2(8)
 const stripItemWidth = 130 + 12
 
-// 加载会话计数器：每次 loadImages 自增并生成唯一 session，用于丢弃旧响应/旧事件，
+// 加载会话计数器：每次 loadDirectory 自增并生成唯一 session，用于丢弃旧响应/旧事件，
 // 防止快速切换文件夹时旧数据污染。
 let loadSessionCounter = 0
 const currentSession = ref('')
 
-async function loadImages() {
+async function loadDirectory() {
   if (!props.selectedFolder) {
     currentSession.value = ''
     rawImages.value = []
+    folders.value = []
     imageIndex.clear()
     appState.setExifLoading(false)
     return
@@ -219,30 +282,31 @@ async function loadImages() {
   currentSession.value = session
   loading.value = true
   try {
-    // 带上 sessionId：后端在 list_images 时注册会话，让上一轮遗留的
-    // 缩略图 / EXIF 批量任务立即失效（空文件夹也必定走这次调用）。
-    const result = await invoke<ImageGroup[]>('list_images', {
+    // 带上 sessionId：后端注册会话，让上一轮遗留的缩略图 / EXIF 批量任务立即失效
+    const result = await invoke<DirectoryContents>('list_directory_contents', {
       dirPath: props.selectedFolder,
       sessionId: session,
     })
     // 旧响应保护：期间用户已切换文件夹则丢弃结果
     if (currentSession.value !== session) return
-    rawImages.value = result
+    folders.value = result.folders
+    rawImages.value = result.images
     rebuildImageIndex()
     selectedIndex.value = -1
     selectedIndices.value.clear()
     thumbnails.value.clear()
     // 列表到达：并发启动缩略图与 EXIF 两个批量任务。
     // 取「当前屏幕顺序」的快照投递：后端严格按传入顺序取任务，
-    // 用未排序的 rawImages（HashMap 随机序）会让首屏图片排到队列末尾才解码。
-    appState.setExifLoading(result.length > 0)
-    const ordered = images.value.slice()
+    // 用未排序的原始列表会让首屏图片排到队列末尾才解码。
+    appState.setExifLoading(result.images.length > 0)
+    const ordered = entries.value.slice()
     loadThumbnailsBatch(session, ordered)
     loadExifBatch(session, ordered)
   } catch (e) {
     if (currentSession.value === session) {
-      console.error('Failed to list images:', e)
+      console.error('Failed to list directory:', e)
       rawImages.value = []
+      folders.value = []
       imageIndex.clear()
       appState.setExifLoading(false)
     }
@@ -253,8 +317,18 @@ async function loadImages() {
   }
 }
 
-async function loadThumbnailsBatch(session: string, ordered: ImageGroup[]) {
-  if (ordered.length === 0) return
+async function loadThumbnailsBatch(session: string, ordered: BrowserEntry[]) {
+  // 图片用 baseName、文件夹封面用 folder:<path> 作为回传 key：
+  // 封面文件可能与当前目录图片同名，靠唯一 key 避免事件串台。
+  const payload = ordered
+    .map(entry => {
+      const filePath = entry.kind === 'image'
+        ? (entry.image.jpgPath || entry.image.rawPath)
+        : entry.folder.coverPath
+      return filePath ? { key: entry.key, file_path: filePath } : null
+    })
+    .filter((x): x is { key: string; file_path: string } => x !== null)
+  if (payload.length === 0) return
 
   const unlisten = await listen<ThumbnailResult>('thumbnail-ready', (event) => {
     const { session_id, base_name, thumbnail, error } = event.payload
@@ -267,12 +341,12 @@ async function loadThumbnailsBatch(session: string, ordered: ImageGroup[]) {
     }
   })
 
-  const filePaths = ordered
-    .map(img => img.jpgPath || img.rawPath)
-    .filter((p): p is string => p !== null)
-
   try {
-    await invoke('generate_thumbnails_batch', { filePaths, sessionId: session })
+    await invoke('generate_thumbnails_batch', {
+      filePaths: payload.map(p => p.file_path),
+      keys: payload.map(p => p.key),
+      sessionId: session,
+    })
   } catch (e) {
     console.error('Failed to generate thumbnails batch:', e)
   } finally {
@@ -283,13 +357,13 @@ async function loadThumbnailsBatch(session: string, ordered: ImageGroup[]) {
 // 两段式加载第二阶段：异步补齐 EXIF。
 // 事件渐进填充 + invoke resolve 后对仍缺失的项做补漏回填（不覆盖已有值，
 // 保护加载期间用户写入的评分）。
-async function loadExifBatch(session: string, ordered: ImageGroup[]) {
-  const items = ordered
-    .map(img => {
-      const filePath = img.jpgPath || img.rawPath
-      return filePath ? { base_name: img.baseName, file_path: filePath } : null
-    })
-    .filter((x): x is { base_name: string; file_path: string } => x !== null)
+async function loadExifBatch(session: string, ordered: BrowserEntry[]) {
+  const items: { base_name: string; file_path: string }[] = []
+  for (const entry of ordered) {
+    if (entry.kind !== 'image') continue
+    const filePath = entry.image.jpgPath || entry.image.rawPath
+    if (filePath) items.push({ base_name: entry.image.baseName, file_path: filePath })
+  }
 
   if (items.length === 0) {
     if (currentSession.value === session) {
@@ -335,6 +409,9 @@ async function loadExifBatch(session: string, ordered: ImageGroup[]) {
 }
 
 function onImageClick(index: number, e: MouseEvent) {
+  // 0.3.0：文件夹单击不做任何交互（不选中、不改当前图）
+  const entry = entries.value[index]
+  if (!entry || entry.kind !== 'image') return
   const isCtrl = e.ctrlKey || e.metaKey
 
   if (e.shiftKey && selectedIndex.value >= 0) {
@@ -364,19 +441,26 @@ function onImageClick(index: number, e: MouseEvent) {
     selectedIndices.value.clear()
     selectedIndices.value.add(index)
   }
-  emit('image-selected', images.value[index])
+  emit('image-selected', entry.image)
 }
 
 function onImageDblClick(index: number) {
+  const entry = entries.value[index]
+  if (!entry) return
+  // 双击文件夹：进入该目录（大图模式下由 App 一并切回浏览视图）
+  if (entry.kind === 'folder') {
+    emit('folder-open', entry.folder.path)
+    return
+  }
   selectedIndex.value = index
   selectedIndices.value.clear()
   selectedIndices.value.add(index)
-  emit('image-dblclick', images.value[index])
+  emit('image-dblclick', entry.image)
 }
 
 function onContextMenu(e: MouseEvent) {
   const menuItems = [
-    { label: '刷新文件夹', action: loadImages },
+    { label: '刷新目录', action: loadDirectory },
     { label: '删除', action: requestDelete },
   ]
 
@@ -409,7 +493,11 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
   exifDialogRef.value.loading = true
 
   try {
-    const selectedImages = Array.from(selectedIndices.value).map(index => images.value[index])
+    const selectedImages: ImageGroup[] = []
+    for (const index of selectedIndices.value) {
+      const entry = entries.value[index]
+      if (entry?.kind === 'image') selectedImages.push(entry.image)
+    }
     const filePaths: string[] = []
 
     selectedImages.forEach(img => {
@@ -465,14 +553,22 @@ async function handleExifConfirm(fields: ExifWriteRequest) {
 }
 
 function navigateImage(direction: number) {
-  if (images.value.length === 0) return
+  if (entries.value.length === 0) return
+  // 文件夹恒排在前面，方向键导航要跳过它们
   let newIndex = selectedIndex.value + direction
-  if (newIndex < 0) newIndex = 0
-  if (newIndex >= images.value.length) newIndex = images.value.length - 1
+  while (
+    newIndex >= 0 &&
+    newIndex < entries.value.length &&
+    entries.value[newIndex].kind !== 'image'
+  ) {
+    newIndex += direction
+  }
+  if (newIndex < 0 || newIndex >= entries.value.length) return
+  const entry = entries.value[newIndex]
   selectedIndex.value = newIndex
   selectedIndices.value.clear()
   selectedIndices.value.add(newIndex)
-  emit('image-selected', images.value[newIndex])
+  if (entry.kind === 'image') emit('image-selected', entry.image)
   ensureIndexVisible(newIndex)
 }
 
@@ -502,7 +598,7 @@ function ensureIndexVisible(index: number) {
   }
 }
 
-watch(() => props.selectedFolder, loadImages)
+watch(() => props.selectedFolder, loadDirectory)
 
 // 模式切换后恢复滚动位置到选中的图片
 const gridScrollerRef = ref<{ scrollToItem: (index: number) => void; $el: HTMLElement } | null>(null)
@@ -531,8 +627,9 @@ function onMouseDown(e: MouseEvent) {
   if (props.mode !== 'grid') return
   if (e.button !== 0) return
   const target = e.target as HTMLElement
-  // 如果点击的是缩略图本身，交由 onImageClick 处理
-  if (target.closest('.image-thumbnail')) return
+  // 如果点击的是缩略图本身，交由 onImageClick 处理；
+  // 文件夹卡片单击无交互，也不能作为框选起点
+  if (target.closest('.image-thumbnail') || target.closest('.folder-thumbnail')) return
 
   const container = browserEl.value
   if (!container) return
@@ -622,7 +719,8 @@ function onMouseUp(e: MouseEvent) {
     if (selectedIndices.value.size > 0) {
       const firstIndex = Math.min(...selectedIndices.value)
       selectedIndex.value = firstIndex
-      emit('image-selected', images.value[firstIndex])
+      const entry = entries.value[firstIndex]
+      if (entry?.kind === 'image') emit('image-selected', entry.image)
     }
   }
 
@@ -633,12 +731,17 @@ function onMouseUp(e: MouseEvent) {
 // Ctrl+A / Cmd+A 全选
 function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-    if (images.value.length === 0) return
+    // 全选只选图片，文件夹不参与 EXIF / 删除等操作
+    const imageIndices = entries.value.flatMap((entry, i) =>
+      entry.kind === 'image' ? [i] : [],
+    )
+    if (imageIndices.length === 0) return
     e.preventDefault()
-    selectedIndices.value = new Set(images.value.map((_, i) => i))
-    selectedIndex.value = 0
-    lastAnchorIndex.value = 0
-    emit('image-selected', images.value[0])
+    selectedIndices.value = new Set(imageIndices)
+    selectedIndex.value = imageIndices[0]
+    lastAnchorIndex.value = imageIndices[0]
+    const first = entries.value[imageIndices[0]]
+    if (first.kind === 'image') emit('image-selected', first.image)
   }
 }
 
@@ -666,10 +769,11 @@ onUnmounted(() => {
 
 // 更新当前选中图片的评分
 function updateImageRating(rating: number) {
-  if (selectedIndex.value < 0 || selectedIndex.value >= images.value.length) return
+  if (selectedIndex.value < 0 || selectedIndex.value >= entries.value.length) return
 
-  const image = images.value[selectedIndex.value]
-  if (!image) return
+  const entry = entries.value[selectedIndex.value]
+  if (!entry || entry.kind !== 'image') return
+  const image = entry.image
 
   const target = imageIndex.get(image.baseName)
   if (!target) return
@@ -740,7 +844,16 @@ function onStripWheel(e: WheelEvent) {
   el.scrollLeft += e.deltaY || e.deltaX
 }
 
-defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImageRating, removeImages })
+defineExpose({
+  navigateImage,
+  requestDelete,
+  selectedIndices,
+  images,
+  updateImageRating,
+  removeImages,
+  // 重复打开同一目录时 selectedFolder 不变、watch 不触发，供 App 手动刷新
+  reload: loadDirectory,
+})
 </script>
 
 <template>
@@ -750,6 +863,14 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
     @contextmenu.prevent="onContextMenu"
     @mousedown="onMouseDown"
   >
+    <!-- 0.3.0：可交互路径栏取代左侧目录树（仅浏览视图显示） -->
+    <PathBreadcrumb
+      v-if="mode === 'grid'"
+      :root-path="rootPath"
+      :current-path="selectedFolder"
+      @navigate="(p: string) => emit('folder-open', p)"
+    />
+
     <!-- Strip 模式：向上收起按钮 -->
     <button
       v-if="mode === 'strip'"
@@ -760,24 +881,28 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       <ChevronUp class="h-4 w-4" />
     </button>
 
-    <!-- 空状态 -->
+    <!-- 空状态：未打开目录 -->
     <div v-if="!selectedFolder" class="browser-empty-state">
       <div class="empty-icon">
         <FolderOpen class="h-12 w-12 text-muted-foreground/50" />
       </div>
-      <p class="empty-title">选择文件夹</p>
-      <p class="empty-desc">从左侧目录树选择一个文件夹以浏览图像</p>
+      <p class="empty-title">未打开目录</p>
+      <p class="empty-desc">从「文件 → 打开目录」选择一个图库文件夹开始浏览</p>
+      <button type="button" class="open-folder-btn" @click="emit('open-folder-requested')">
+        <FolderOpen class="h-4 w-4" />
+        打开目录
+      </button>
     </div>
     <div v-else-if="loading" class="browser-loading">
       <RefreshCw class="h-8 w-8 animate-spin text-muted-foreground" />
-      <span>加载图像中...</span>
+      <span>加载目录中...</span>
     </div>
-    <div v-else-if="images.length === 0" class="browser-empty-state">
+    <div v-else-if="entries.length === 0" class="browser-empty-state">
       <div class="empty-icon">
         <Image class="h-12 w-12 text-muted-foreground/50" />
       </div>
-      <p class="empty-title">没有图像</p>
-      <p class="empty-desc">此文件夹中没有支持的图像文件</p>
+      <p class="empty-title">空目录</p>
+      <p class="empty-desc">此目录中没有子文件夹或支持的图像文件</p>
     </div>
 
     <!-- Grid 模式：大图标网格，垂直滚动 -->
@@ -792,19 +917,27 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       v-slot="{ item }"
     >
       <div class="thumbnail-row">
-        <ImageThumbnail
-          v-for="imgData in item.images"
-          :key="imgData.img.baseName"
-          :image="imgData.img"
-          :thumbnail="thumbnails.get(imgData.img.baseName) || null"
-          :selected="selectedIndices.has(imgData.globalIndex)"
-          :data-index="imgData.globalIndex"
-          size="large"
-          :info-active="isInfoActive(imgData.img)"
-          @click="(e: MouseEvent) => onImageClick(imgData.globalIndex, e)"
-          @dblclick="() => onImageDblClick(imgData.globalIndex)"
-          @info-click="(img: ImageGroup) => emit('info-requested', img)"
-        />
+        <template v-for="cell in item.cells" :key="cell.key">
+          <FolderThumbnail
+            v-if="cell.kind === 'folder' && cell.folder"
+            :folder="cell.folder"
+            :thumbnail="thumbnails.get(cell.key) || null"
+            size="large"
+            @dblclick="() => onImageDblClick(cell.globalIndex)"
+          />
+          <ImageThumbnail
+            v-else-if="cell.image"
+            :image="cell.image"
+            :thumbnail="thumbnails.get(cell.key) || null"
+            :selected="selectedIndices.has(cell.globalIndex)"
+            :data-index="cell.globalIndex"
+            size="large"
+            :info-active="isInfoActive(cell.image)"
+            @click="(e: MouseEvent) => onImageClick(cell.globalIndex, e)"
+            @dblclick="() => onImageDblClick(cell.globalIndex)"
+            @info-click="(img: ImageGroup) => emit('info-requested', img)"
+          />
+        </template>
       </div>
     </RecycleScroller>
 
@@ -813,19 +946,27 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
       v-else
       ref="stripScrollerRef"
       class="strip-scroller"
-      :items="images"
+      :items="stripItems"
       :item-size="stripItemWidth"
-      key-field="baseName"
+      key-field="key"
       direction="horizontal"
       v-slot="{ item, index }"
       @wheel.prevent="onStripWheel"
     >
+      <FolderThumbnail
+        v-if="item.kind === 'folder' && item.folder"
+        :folder="item.folder"
+        :thumbnail="thumbnails.get(item.key) || null"
+        size="normal"
+        @dblclick="() => onImageDblClick(index)"
+      />
       <ImageThumbnail
-        :image="item"
-        :thumbnail="thumbnails.get(item.baseName) || null"
+        v-else-if="item.image"
+        :image="item.image"
+        :thumbnail="thumbnails.get(item.key) || null"
         :selected="selectedIndices.has(index)"
         size="normal"
-        :info-active="isInfoActive(item)"
+        :info-active="isInfoActive(item.image)"
         @click="(e: MouseEvent) => onImageClick(index, e)"
         @dblclick="() => onImageDblClick(index)"
         @info-click="(img: ImageGroup) => emit('info-requested', img)"
@@ -937,10 +1078,30 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
   font-size: var(--font-size-sm);
 }
 
-/* Grid 模式滚动器 */
+/* 空状态里的「打开目录」按钮（目录树移除后的主要入口） */
+.open-folder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--spacing-md);
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.open-folder-btn:hover {
+  background: var(--accent);
+}
+
+/* Grid 模式滚动器：上方多了 40px 路径栏，用 flex 分配剩余高度而不是 100% */
 .scroller {
-  flex: 1;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .scroller :deep(.vue-recycle-scroller__item-wrapper) {
@@ -958,8 +1119,8 @@ defineExpose({ navigateImage, requestDelete, selectedIndices, images, updateImag
 
 /* Strip 模式：横向滚动 (RecycleScroller horizontal) */
 .strip-scroller {
-  flex: 1;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .strip-scroller :deep(.vue-recycle-scroller__item-wrapper) {

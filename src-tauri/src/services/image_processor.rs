@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use crate::models::image::ImageGroup;
+use crate::models::image::{DirectoryContents, FolderItem, ImageGroup};
 
 const IMAGE_EXTENSIONS_JPG: &[&str] = &["jpg", "jpeg", "png"];
 const IMAGE_EXTENSIONS_RAW: &[&str] = &["raf", "tif", "tiff", "bmp", "dng"];
@@ -187,6 +187,84 @@ pub fn list_images(dir_path: &Path) -> Result<Vec<ImageGroup>, std::io::Error> {
 
     // 排序逻辑已移至前端，后端返回原始列表
     Ok(result)
+}
+
+/// 0.3.0：目录树移除后，一次 IPC 取回「子文件夹 + 图片组」。
+/// 前端拿到即可立刻渲染混合网格，不用再发一次目录扫描命令。
+pub fn list_directory_contents(dir_path: &Path) -> Result<DirectoryContents, std::io::Error> {
+    Ok(DirectoryContents {
+        folders: list_folders(dir_path)?,
+        images: list_images(dir_path)?,
+    })
+}
+
+/// 列出直属子文件夹，并为每个文件夹挑一张封面照片。
+/// 严格只看一层：不递归扫描孙目录，避免大图库上出现不可控的 IO。
+fn list_folders(dir_path: &Path) -> Result<Vec<FolderItem>, std::io::Error> {
+    fn smaller(current: &Option<String>, candidate: &str) -> bool {
+        match current {
+            Some(c) => candidate < c.as_str(),
+            None => true,
+        }
+    }
+
+    let mut folders = Vec::new();
+    for entry in std::fs::read_dir(dir_path)?.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // 隐藏目录不展示，与资源管理器习惯一致
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let mut stems: HashSet<String> = HashSet::new();
+        let mut cover_compressed: Option<String> = None;
+        let mut cover_any: Option<String> = None;
+
+        if let Ok(children) = std::fs::read_dir(&path) {
+            for child in children.filter_map(|e| e.ok()) {
+                let child_path = child.path();
+                if !child_path.is_file() {
+                    continue;
+                }
+                let ext = match child_path.extension().and_then(|e| e.to_str()) {
+                    Some(e) => e.to_string(),
+                    None => continue,
+                };
+                if !is_image_file(&ext) {
+                    continue;
+                }
+                // 同名 JPG + RAW 属于同一张照片
+                if let Some(stem) = child_path.file_stem().and_then(|s| s.to_str()) {
+                    stems.insert(stem.to_string());
+                }
+                let path_str = child_path.to_string_lossy().to_string();
+                // 取字典序最小者作为稳定封面；优先压缩格式（解码更快）
+                if is_jpg_ext(&ext) && smaller(&cover_compressed, &path_str) {
+                    cover_compressed = Some(path_str.clone());
+                }
+                if smaller(&cover_any, &path_str) {
+                    cover_any = Some(path_str);
+                }
+            }
+        }
+
+        folders.push(FolderItem {
+            name,
+            path: path.to_string_lossy().to_string(),
+            photo_count: stems.len(),
+            cover_path: cover_compressed.or(cover_any),
+        });
+    }
+
+    folders.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(folders)
 }
 
 /// 对图片组并行检测 gain map HDR（仅解析 JPEG 头部段）。

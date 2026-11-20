@@ -18,6 +18,10 @@ pub async fn generate_thumbnails_batch(
     app: AppHandle,
     file_paths: Vec<String>,
     session_id: String,
+    // 0.3.0：可选的回传 key，与 file_paths 一一对应。
+    // 文件夹封面图可能与当前目录图片同名，用调用方指定的唯一 key 避免事件串台；
+    // 不传时沿用旧行为（文件名 stem）。
+    keys: Option<Vec<String>>,
 ) -> Result<(), AppError> {
     use futures::stream::{self, StreamExt};
     use std::sync::Arc;
@@ -27,18 +31,20 @@ pub async fn generate_thumbnails_batch(
     let semaphore = Arc::new(Semaphore::new(8));
     let session_id = Arc::new(session_id);
     let session_guard = Arc::clone(&session_id);
+    let keys = Arc::new(keys.unwrap_or_default());
 
-    stream::iter(file_paths)
+    stream::iter(file_paths.into_iter().enumerate())
         // 用户已切到别的文件夹时立即终止整条任务流，不再继续解码剩余文件。
         // 只靠前端过滤事件是不够的：旧任务仍会占满 8 个并发槽与磁盘 IO。
         .take_while(move |_| {
             let active = is_load_session_active(session_guard.as_str());
             async move { active }
         })
-        .map(|file_path| {
+        .map(|(index, file_path)| {
             let app_handle = app.clone();
             let sem = semaphore.clone();
             let session_id = session_id.clone();
+            let keys = Arc::clone(&keys);
             async move {
                 if !is_load_session_active(session_id.as_str()) {
                     return;
@@ -51,11 +57,16 @@ pub async fn generate_thumbnails_batch(
                 }
 
                 let path = PathBuf::from(&file_path);
-                let base_name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_string();
+                let base_name = keys
+                    .get(index)
+                    .cloned()
+                    .filter(|k| !k.is_empty())
+                    .unwrap_or_else(|| {
+                        path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string()
+                    });
 
                 // 轻量检查：路径存在且为文件（不做 canonicalize）
                 let result = if path.exists() && path.is_file() {
