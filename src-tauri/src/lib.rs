@@ -21,6 +21,9 @@ pub fn run() {
             commands::exif_cmd::read_exif_batch,
             commands::exif_cmd::write_rating,
             commands::exif_cmd::write_exif_fields,
+            commands::exif_cmd::write_exif_fields_batch,
+            commands::hdr_cmd::plan_hdr_conversion,
+            commands::hdr_cmd::convert_hdr_batch,
             commands::trash_cmd::move_to_trash,
         ])
         .run(tauri::generate_context!())

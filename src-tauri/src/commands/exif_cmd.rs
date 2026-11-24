@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::exif::{ExifInfo, ExifWriteRequest};
 use crate::services::exif_service;
 use tauri::{AppHandle, Emitter};
-use super::{validate_file_path, is_load_session_active};
+use super::{batch_concurrency, validate_file_path, is_load_session_active, TaskProgressEvent};
 
 #[tauri::command]
 pub fn read_exif(file_path: String) -> Result<ExifInfo, AppError> {
@@ -141,4 +141,112 @@ pub fn write_exif_fields(file_paths: Vec<String>, fields: ExifWriteRequest) -> R
     let validated_paths = validated?;
 
     exif_service::write_exif_fields(&validated_paths, &fields)
+}
+
+/// 批量写 EXIF 的单项结果（字段 camelCase，与前端一致）。
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExifWriteResult {
+    pub file_path: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+fn file_name_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// 批量写 EXIF 并逐项推送 `task-progress` 进度。
+///
+/// 修改 EXIF 的弹窗确认后会立即关闭，由该命令在后台逐文件写入；
+/// 单个文件失败（例如 BMP 不支持写 EXIF）不会中断整批。
+#[tauri::command]
+pub async fn write_exif_fields_batch(
+    app: AppHandle,
+    task_id: String,
+    file_paths: Vec<String>,
+    fields: ExifWriteRequest,
+) -> Result<Vec<ExifWriteResult>, AppError> {
+    use futures::stream::{self, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let total = file_paths.len();
+    if total == 0 {
+        return Ok(Vec::new());
+    }
+
+    let processed = Arc::new(AtomicUsize::new(0));
+    let failed = Arc::new(AtomicUsize::new(0));
+    let collected: Arc<Mutex<Vec<(usize, ExifWriteResult)>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(total)));
+    let results_store = Arc::clone(&collected);
+    let concurrency = batch_concurrency(total);
+
+    stream::iter(file_paths.into_iter().enumerate())
+        .for_each_concurrent(concurrency, move |(index, raw_path)| {
+            let app = app.clone();
+            let task_id = task_id.clone();
+            let processed = Arc::clone(&processed);
+            let failed = Arc::clone(&failed);
+            let collected = Arc::clone(&collected);
+            let request = fields.clone();
+
+            async move {
+                let display = file_name_of(&raw_path);
+                let input = raw_path.clone();
+                let outcome = tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+                    let path = validate_file_path(&input)?;
+                    let canonical = path.to_string_lossy().to_string();
+                    exif_service::write_exif_fields(&[canonical], &request)
+                })
+                .await;
+
+                let result = match outcome {
+                    Ok(Ok(())) => ExifWriteResult {
+                        file_path: raw_path,
+                        success: true,
+                        error: None,
+                    },
+                    Ok(Err(error)) => ExifWriteResult {
+                        file_path: raw_path,
+                        success: false,
+                        error: Some(error.to_string()),
+                    },
+                    Err(error) => ExifWriteResult {
+                        file_path: raw_path,
+                        success: false,
+                        error: Some(format!("写入任务异常: {}", error)),
+                    },
+                };
+
+                if !result.success {
+                    failed.fetch_add(1, Ordering::Relaxed);
+                }
+
+                let done = processed.fetch_add(1, Ordering::SeqCst) + 1;
+                let _ = app.emit(
+                    "task-progress",
+                    TaskProgressEvent {
+                        task_id,
+                        kind: "exif".to_string(),
+                        processed: done,
+                        total,
+                        current: Some(display),
+                        failed: failed.load(Ordering::Relaxed),
+                    },
+                );
+
+                collected.lock().unwrap().push((index, result));
+            }
+        })
+        .await;
+
+    let mut results = results_store.lock().unwrap().clone();
+    results.sort_by_key(|(index, _)| *index);
+    Ok(results.into_iter().map(|(_, result)| result).collect())
 }

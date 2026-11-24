@@ -128,6 +128,53 @@ fn read_image_dimensions(file_path: &Path, ext: Option<&str>) -> Option<(u32, u3
     }
 }
 
+// ── EXIF → JPEG APP1 payload ─────────────────────────────────────────────────
+
+/// 将 `ExifInfo` 中的常用字段序列化为 JPEG APP1 所需的 EXIF 负载
+/// （包含 `Exif\0\0` 前缀，可直接作为 APP1 段内容写入）。
+///
+/// 用于 TIF/BMP → HDR JPG 转换时保留评级、拍摄参数等元数据：
+/// 转换后的 JPG 会成为图片组的 jpgPath，若不复制 EXIF，照片信息面板会变空。
+/// 字段无法序列化或负载超过 APP1 上限时返回 `None`，不影响图像转换本身。
+pub fn build_exif_app1_payload(info: &ExifInfo) -> Option<Vec<u8>> {
+    let request = ExifWriteRequest {
+        datetime: info.datetime.clone().filter(|s| !s.trim().is_empty()),
+        camera_make: info.camera_make.clone().filter(|s| !s.trim().is_empty()),
+        camera_model: info.camera_model.clone().filter(|s| !s.trim().is_empty()),
+        lens_model: info.lens_model.clone().filter(|s| !s.trim().is_empty()),
+        focal_length: info.focal_length,
+        shutter_speed: info.shutter_speed.clone().filter(|s| !s.trim().is_empty()),
+        aperture: info.aperture,
+        iso: info.iso,
+        gps_latitude: info.gps_latitude,
+        gps_longitude: info.gps_longitude,
+        rating: info.rating.filter(|r| *r <= 5),
+    };
+
+    let (tags, fields) = match common::build_exif_changes(&request) {
+        Ok(result) => result,
+        Err(_) => {
+            // 个别字段（例如非标准快门字符串）无法解析时，丢弃快门后重试。
+            let mut fallback = request.clone();
+            fallback.shutter_speed = None;
+            common::build_exif_changes(&fallback).ok()?
+        }
+    };
+    if tags.is_empty() {
+        return None;
+    }
+
+    let tiff = common::build_merged_exif_bytes(&[], &tags, &fields).ok()?;
+    let mut payload = Vec::with_capacity(6 + tiff.len());
+    payload.extend_from_slice(b"Exif\0\0");
+    payload.extend_from_slice(&tiff);
+    // APP1 长度字段为 u16（含长度自身的 2 字节）。
+    if payload.len() > 0xFFFF - 2 {
+        return None;
+    }
+    Some(payload)
+}
+
 // ── write EXIF fields ─────────────────────────────────────────────────────────
 
 /// Write EXIF fields to one or more image files in parallel.

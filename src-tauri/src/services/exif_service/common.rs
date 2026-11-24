@@ -210,6 +210,9 @@ pub(super) fn build_exif_changes(
         tags_to_replace.push(Tag::DateTimeOriginal);
         tags_to_replace.push(Tag::DateTime);
     }
+    if req.camera_make.is_some() {
+        tags_to_replace.push(Tag::Make);
+    }
     if req.camera_model.is_some() {
         tags_to_replace.push(Tag::Model);
     }
@@ -253,6 +256,14 @@ pub(super) fn build_exif_changes(
             tag: Tag::DateTime,
             ifd_num: In::PRIMARY,
             value: ascii_val,
+        });
+    }
+
+    if let Some(ref make) = req.camera_make {
+        new_fields.push(Field {
+            tag: Tag::Make,
+            ifd_num: In::PRIMARY,
+            value: Value::Ascii(vec![make.as_bytes().to_vec()]),
         });
     }
 

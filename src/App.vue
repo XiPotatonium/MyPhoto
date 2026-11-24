@@ -14,6 +14,7 @@ import ImageViewer from './components/viewer/ImageViewer.vue'
 import FormatTabBar from './components/viewer/FormatTabBar.vue'
 import ExifDisplay from './components/info/ExifDisplay.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
+import TaskProgressPopups from './components/common/TaskProgressPopups.vue'
 
 async function writeRating(image: ImageGroup, rating: number): Promise<boolean> {
   const filePath = image.jpgPath || image.rawPath
@@ -308,6 +309,9 @@ onUnmounted(() => {
       @confirm="async (v: string) => { try { await appState.state.confirmDialog.onConfirm(v) } finally { appState.hideConfirmDialog() } }"
       @cancel="async () => { try { await appState.state.confirmDialog.onCancel?.() } finally { appState.hideConfirmDialog() } }"
     />
+
+    <!-- 0.3.4：HDR 转换 / EXIF 写入等后台任务的左上角进度浮层 -->
+    <TaskProgressPopups />
   </div>
 </template>
 
@@ -318,6 +322,8 @@ onUnmounted(() => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  /* 左上角任务进度浮层以它为定位基准 */
+  position: relative;
 }
 
 .main-layout {

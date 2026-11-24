@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import type { ImageGroup, SortField, SortOrder } from '../types/image'
+import type { TaskKind, TaskProgress } from '../types/task'
 
 interface ConfirmDialogState {
   visible: boolean
@@ -24,6 +25,8 @@ interface AppState {
   // 0.3.0：右侧详情页不再常驻，由缩略图 / 大图控件上的 i 按钮按需展开
   infoPanelVisible: boolean
   confirmDialog: ConfirmDialogState
+  // 0.3.4：HDR 转换 / EXIF 写入等后台任务，左上角进度浮层据此渲染
+  tasks: TaskProgress[]
 }
 
 const state = reactive<AppState>({
@@ -44,7 +47,10 @@ const state = reactive<AppState>({
     onConfirm: () => {},
     onCancel: undefined,
   },
+  tasks: [],
 })
+
+let taskCounter = 0
 
 export function useAppState() {
   function setRootPath(path: string | null) {
@@ -104,6 +110,46 @@ export function useAppState() {
     state.confirmDialog.visible = false
   }
 
+  // ── 后台任务进度（0.3.4）─────────────────────────────────────────────────
+
+  function startTask(kind: TaskKind, title: string, total: number): string {
+    const id = `${kind}-${Date.now()}-${++taskCounter}`
+    state.tasks.push({
+      id,
+      kind,
+      title,
+      processed: 0,
+      total: Math.max(total, 0),
+      current: null,
+      failed: 0,
+      done: false,
+    })
+    return id
+  }
+
+  function updateTask(
+    id: string,
+    patch: Partial<Pick<TaskProgress, 'processed' | 'total' | 'current' | 'failed'>>,
+  ) {
+    const task = state.tasks.find(item => item.id === id)
+    if (!task) return
+    Object.assign(task, patch)
+    if (task.processed > task.total) task.processed = task.total
+  }
+
+  function finishTask(id: string, failed?: number) {
+    const task = state.tasks.find(item => item.id === id)
+    if (!task) return
+    if (typeof failed === 'number') task.failed = failed
+    task.processed = task.total
+    task.current = null
+    task.done = true
+  }
+
+  function removeTask(id: string) {
+    state.tasks = state.tasks.filter(item => item.id !== id)
+  }
+
   return {
     state,
     setRootPath,
@@ -118,6 +164,10 @@ export function useAppState() {
     toggleInfoPanel,
     showConfirmDialog,
     hideConfirmDialog,
+    startTask,
+    updateTask,
+    finishTask,
+    removeTask,
   }
 }
 

@@ -4,7 +4,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { FolderOpen, Image, RefreshCw, ChevronUp } from 'lucide-vue-next'
 import type { ImageGroup, SortField, SortOrder, ExifBatchResult } from '../../types/image'
-import type { ExifInfo } from '../../types/exif'
+import type { ExifInfo, ExifWriteResult } from '../../types/exif'
+import type { HdrConvertResult, HdrPlan } from '../../types/hdr'
 import type {
   BrowserEntry,
   DirectoryContents,
@@ -15,6 +16,7 @@ import ImageThumbnail from './ImageThumbnail.vue'
 import FolderThumbnail from './FolderThumbnail.vue'
 import ContextMenu from '../common/ContextMenu.vue'
 import ExifDialog from '../common/ExifDialog.vue'
+import HdrConvertDialog from '../common/HdrConvertDialog.vue'
 import type { ExifWriteRequest } from '../common/ExifDialog.vue'
 import { useContextMenu } from '../../composables/useContextMenu'
 import { RecycleScroller } from 'vue-virtual-scroller'
@@ -163,6 +165,11 @@ const { menuState, showMenu, hideMenu } = useContextMenu()
 const containerWidth = ref(0)
 const exifDialogVisible = ref(false)
 const exifDialogRef = ref<InstanceType<typeof ExifDialog> | null>(null)
+// 0.3.4：HDR 转换确认弹窗与计划数据
+const hdrDialogVisible = ref(false)
+const hdrPlan = ref<HdrPlan | null>(null)
+const hdrPlanLoading = ref(false)
+let hdrPlanToken = 0
 
 // 排序后的图片列表（exifReady 由 !exifLoading 提供：EXIF 到齐后自动一次性重排）
 const images = computed(() => {
@@ -497,6 +504,8 @@ function onImageDblClick(index: number) {
   emit('image-dblclick', entry.image)
 }
 
+const HDR_CONVERTIBLE_RE = /\.(tif|tiff|bmp)$/i
+
 function onContextMenu(e: MouseEvent) {
   const menuItems = [
     { label: '刷新目录', action: loadDirectory },
@@ -505,6 +514,8 @@ function onContextMenu(e: MouseEvent) {
 
   if (selectedIndices.value.size > 0) {
     menuItems.push({ label: '修改EXIF信息', action: openExifDialog })
+    // 0.3.4：选中图像 → 转换为 HDR（TIF / BMP 才真正可转，弹窗里会说明）
+    menuItems.push({ label: '转换为 HDR', action: openHdrDialog })
   }
 
   showMenu(e, menuItems)
@@ -512,6 +523,32 @@ function onContextMenu(e: MouseEvent) {
 
 function requestDelete() {
   emit('delete-requested')
+}
+
+function selectedImages(): ImageGroup[] {
+  const list: ImageGroup[] = []
+  for (const index of selectedIndices.value) {
+    const entry = entries.value[index]
+    if (entry?.kind === 'image') list.push(entry.image)
+  }
+  return list
+}
+
+/// HDR 转换的源文件：优先取组内 TIF/BMP；没有时传组内其他文件，
+/// 让后端把它统计为「不支持」，保证弹窗里的总数与选中照片数一致。
+function hdrSourcePath(image: ImageGroup): string | null {
+  if (image.rawPath && HDR_CONVERTIBLE_RE.test(image.rawPath)) return image.rawPath
+  return image.rawPath ?? image.jpgPath ?? null
+}
+
+function baseNameOfPath(path: string): string {
+  const name = path.split(/[/\\]/).pop() ?? path
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(0, dot) : name
+}
+
+function fileNameOfPath(path: string): string {
+  return path.split(/[/\\]/).pop() ?? path
 }
 
 function openExifDialog() {
@@ -526,68 +563,147 @@ function closeExifDialog() {
   }
 }
 
+/// 0.3.4：EXIF 弹窗确认后立即关闭，由后台批量任务写入并显示进度条。
 async function handleExifConfirm(fields: ExifWriteRequest) {
-  if (!exifDialogRef.value) return
+  const selected = selectedImages()
+  const filePaths: string[] = []
+  selected.forEach(img => {
+    if (img.jpgPath) filePaths.push(img.jpgPath)
+    if (img.rawPath) filePaths.push(img.rawPath)
+  })
 
-  exifDialogRef.value.loading = true
+  closeExifDialog()
+  if (filePaths.length === 0) {
+    console.error('No valid file paths found')
+    return
+  }
+
+  const taskId = appState.startTask('exif', '修改 EXIF 信息', filePaths.length)
 
   try {
-    const selectedImages: ImageGroup[] = []
-    for (const index of selectedIndices.value) {
-      const entry = entries.value[index]
-      if (entry?.kind === 'image') selectedImages.push(entry.image)
-    }
-    const filePaths: string[] = []
-
-    selectedImages.forEach(img => {
-      if (img.jpgPath) {
-        filePaths.push(img.jpgPath)
-      }
-      if (img.rawPath) {
-        filePaths.push(img.rawPath)
-      }
+    const results = await invoke<ExifWriteResult[]>('write_exif_fields_batch', {
+      taskId,
+      filePaths,
+      fields,
     })
+    const failed = results.filter(result => !result.success)
+    appState.finishTask(taskId, failed.length)
 
-    if (filePaths.length === 0) {
-      console.error('No valid file paths found')
-      return
-    }
-
-    const errors: string[] = []
-    try {
-      await invoke('write_exif_fields', { filePaths, fields })
-    } catch (e) {
-      errors.push(String(e))
-    }
-
-    if (errors.length > 0) {
-      console.error('Some files failed:', errors)
-      alert('部分文件保存失败:\n' + errors.join('\n'))
-    } else {
-      console.log(`Successfully updated EXIF for ${filePaths.length} file(s)`)
-    }
-
-    // 写入成功后重新读取 EXIF 更新 image.exifInfo
-    for (const img of selectedImages) {
+    // 写入完成后重新读取 EXIF，刷新前端缓存的照片信息。
+    for (const img of selected) {
       const path = img.jpgPath || img.rawPath
-      if (path) {
-        try {
-          const updatedExif = await invoke<ExifInfo>('read_exif', { filePath: path })
-          img.exifInfo = updatedExif
-        } catch (e) {
-          console.error('Failed to re-read EXIF for', img.baseName, e)
-        }
+      if (!path) continue
+      try {
+        const updatedExif = await invoke<ExifInfo>('read_exif', { filePath: path })
+        img.exifInfo = updatedExif
+      } catch (e) {
+        console.error('Failed to re-read EXIF for', img.baseName, e)
       }
     }
 
-    closeExifDialog()
+    if (failed.length > 0) {
+      const detail = failed
+        .slice(0, 5)
+        .map(result => `${fileNameOfPath(result.filePath)}: ${result.error ?? '未知错误'}`)
+        .join('\n')
+      alert(`有 ${failed.length} 个文件保存失败:\n${detail}`)
+    }
   } catch (e) {
     console.error('Failed to write EXIF info:', e)
+    appState.finishTask(taskId, filePaths.length)
     alert('保存EXIF信息失败: ' + e)
-  } finally {
-    if (exifDialogRef.value) {
-      exifDialogRef.value.loading = false
+  }
+}
+
+// ── 转换为 HDR（0.3.4）──────────────────────────────────────────────────────
+
+async function openHdrDialog() {
+  const paths = selectedImages()
+    .map(hdrSourcePath)
+    .filter((path): path is string => !!path)
+  if (paths.length === 0) return
+
+  hdrDialogVisible.value = true
+  hdrPlan.value = null
+  hdrPlanLoading.value = true
+  const token = ++hdrPlanToken
+
+  try {
+    const plan = await invoke<HdrPlan>('plan_hdr_conversion', { filePaths: paths })
+    if (token === hdrPlanToken && hdrDialogVisible.value) {
+      hdrPlan.value = plan
     }
+  } catch (e) {
+    console.error('Failed to plan HDR conversion:', e)
+    if (token === hdrPlanToken) {
+      closeHdrDialog()
+      alert('检查所选照片失败: ' + e)
+    }
+  } finally {
+    if (token === hdrPlanToken) {
+      hdrPlanLoading.value = false
+    }
+  }
+}
+
+function closeHdrDialog() {
+  hdrPlanToken += 1
+  hdrDialogVisible.value = false
+  hdrPlan.value = null
+  hdrPlanLoading.value = false
+}
+
+/// 确认转换：弹窗立即关闭，后台任务通过 task-progress 事件驱动左上角进度浮层。
+async function handleHdrConfirm() {
+  const paths = selectedImages()
+    .map(hdrSourcePath)
+    .filter((path): path is string => !!path && HDR_CONVERTIBLE_RE.test(path))
+
+  // 记录任务开始时所在目录：转换期间用户切目录后不再回填旧目录的图片组。
+  const folderAtStart = props.selectedFolder
+  closeHdrDialog()
+  if (paths.length === 0) return
+
+  const taskId = appState.startTask('hdr', '转换为 HDR', paths.length)
+
+  try {
+    const results = await invoke<HdrConvertResult[]>('convert_hdr_batch', {
+      taskId,
+      filePaths: paths,
+    })
+
+    if (props.selectedFolder === folderAtStart) {
+      applyHdrResults(results)
+    }
+
+    const failed = results.filter(result => !result.success)
+    appState.finishTask(taskId, failed.length)
+
+    if (failed.length > 0) {
+      const detail = failed
+        .slice(0, 5)
+        .map(result => `${fileNameOfPath(result.inputPath)}: ${result.error ?? '未知错误'}`)
+        .join('\n')
+      alert(`有 ${failed.length} 张图像转换失败:\n${detail}`)
+    }
+  } catch (e) {
+    console.error('Failed to convert to HDR:', e)
+    appState.finishTask(taskId, paths.length)
+    alert('转换为 HDR 失败: ' + e)
+  }
+}
+
+/// 转换完成后就地更新图片组：新 JPG 成为组内 jpgPath 并标记 HDR。
+/// 不重新扫描目录，避免清空当前选择、重新解码全部缩略图。
+function applyHdrResults(results: HdrConvertResult[]) {
+  for (const result of results) {
+    if (!result.success || !result.outputPath) continue
+    const image = imageIndex.get(baseNameOfPath(result.inputPath))
+    if (!image) continue
+    const hadJpg = !!image.jpgPath
+    image.jpgPath = result.outputPath
+    image.isHdr = true
+    if (!hadJpg) image.fileCount += 1
   }
 }
 
@@ -1059,6 +1175,13 @@ defineExpose({
       :visible="exifDialogVisible"
       @confirm="handleExifConfirm"
       @cancel="closeExifDialog"
+    />
+    <HdrConvertDialog
+      :visible="hdrDialogVisible"
+      :plan="hdrPlan"
+      :loading="hdrPlanLoading"
+      @confirm="handleHdrConfirm"
+      @cancel="closeHdrDialog"
     />
   </div>
 </template>

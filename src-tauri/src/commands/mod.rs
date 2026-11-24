@@ -1,11 +1,40 @@
 pub mod exif_cmd;
 pub mod filesystem;
+pub mod hdr_cmd;
 pub mod thumbnail;
 pub mod trash_cmd;
 
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use crate::error::AppError;
+
+/// 后台批量任务的进度事件（事件名 `task-progress`）。
+///
+/// 字段使用 camelCase，前端按 `taskId` 过滤后更新左上角进度浮层。
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskProgressEvent {
+    pub task_id: String,
+    /// `hdr` | `exif`
+    pub kind: String,
+    pub processed: usize,
+    pub total: usize,
+    /// 刚处理完的文件名，用于进度浮层的次要行文案。
+    pub current: Option<String>,
+    pub failed: usize,
+}
+
+/// 批量任务并发数：HDR 转换每个任务峰值内存较高，限制在 4 以内。
+pub fn batch_concurrency(item_count: usize) -> usize {
+    if item_count <= 1 {
+        return 1;
+    }
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(4)
+        .min(item_count)
+}
 
 /// 当前有效的文件夹加载会话。
 /// 每次目录加载（`list_directory_contents` / `list_images`）都会注册新会话，

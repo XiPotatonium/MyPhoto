@@ -25,7 +25,9 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Windows 上 localhost 可能只解析到 IPv6(::1)，与 Tauri devUrl / WebView2
+    // 的连接行为不一致；固定到 IPv4 回环，保证 dev 窗口和浏览器访问同一地址。
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
