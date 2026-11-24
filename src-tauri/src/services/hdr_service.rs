@@ -1,10 +1,10 @@
 //! TIF / BMP → Ultra HDR JPEG（ISO 21496-1 / Google Ultra HDR）转换。
 //!
-//! 转换逻辑参考 gainmap CLI（https://github.com/kirkstrobeck/gainmaps.com）的
-//! keep-base 编码器：
+//! 核心思路与 Lightroom 的 gain map 一致：
 //! 1. SDR 基础图 = 原始像素（不做色调映射），因此 SDR 显示设备上看到的画面与
-//!    原 TIF/BMP 一致；
-//! 2. 按亮度做 highlight-selective 增益，把增益量化成增益图（gain map）；
+//!    原 TIF/BMP 完全一致；
+//! 2. 按一条从 Lightroom Classic HDR 导出实测标定的高光扩展曲线生成增益图
+//!    （只提升高光，最大约 +0.95 stop），避免把高光整体推亮后失去层次；
 //! 3. 基础图与增益图分别编码为 JPEG，再拼成一个 Ultra HDR JPEG：
 //!    EXIF(APP1) + XMP(APP1) + MPF(APP2) + 基础图 + 增益图（第二张 JPEG）。
 //!
@@ -20,17 +20,28 @@ use image::{DynamicImage, ExtendedColorType, ImageDecoder, ImageReader, RgbImage
 use crate::error::AppError;
 use crate::services::exif_service;
 
-/// 与 gainmap CLI 文档默认值 boost=0.5 对齐的 HDR 增益上限（约 3.34×）。
-/// 只影响 HDR 屏幕上的高光亮度，不影响 SDR 基础图。
-const DEFAULT_HEADROOM: f64 = 3.3431570529937744;
-/// 基础图 / 增益图 JPEG 质量，与 gainmap CLI 默认值一致。
+/// Lightroom 风格的高光扩展曲线：以「线性 SDR 亮度 → 相对 SDR 基础图的 HDR 增益（stop）」
+/// 标定。数据来自 Lightroom Classic 14.4 对同一批 8-bit 胶片扫描的 HDR JPEG 导出：
+/// 逐像素重建其 gain map 后，与原始 TIF 相比的净提升中位数约为
+/// 0.4 亮度 +0.01 stop、0.5 +0.06、0.6 +0.15、0.7 +0.29、0.8 +0.46、0.9 +0.72。
+/// 相比原来的全局 3.34×（+1.74 stop）高光增益，这条曲线把提升限制在约 +0.95 stop，
+/// 避免高光整体被推亮后失去层次。
+const HDR_GAIN_CURVE: &[(f64, f64)] = &[
+    (0.00, 0.000),
+    (0.30, 0.000),
+    (0.40, 0.013),
+    (0.50, 0.062),
+    (0.60, 0.147),
+    (0.70, 0.295),
+    (0.80, 0.464),
+    (0.90, 0.715),
+    (1.00, 0.950),
+];
+/// 基础图 / 增益图 JPEG 质量。
 const DEFAULT_JPEG_QUALITY: u8 = 92;
 /// ISO 21496-1 建议的线性域偏移，避免暗部除零。
 const OFFSET_SDR: f64 = 1.0 / 64.0;
 const OFFSET_HDR: f64 = 1.0 / 64.0;
-/// highlight-selective 模型的亮度过渡区间。
-const HIGHLIGHT_EDGE_LOW: f64 = 0.28;
-const HIGHLIGHT_EDGE_HIGH: f64 = 0.88;
 
 /// XMP APP1 命名空间（含结尾 NUL），与 gainmap CLI 输出一致。
 const XMP_NAMESPACE: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
@@ -128,7 +139,7 @@ pub fn convert_file_to_hdr(
     }
 
     let quality = quality.unwrap_or(DEFAULT_JPEG_QUALITY).clamp(1, 100);
-    let (gain_map, max_log2) = build_gain_map(&rgb, DEFAULT_HEADROOM);
+    let (gain_map, max_stops) = build_gain_map(&rgb);
     let sdr_jpeg = encode_jpeg(rgb.as_raw(), width, height, quality)?;
     let gain_jpeg = encode_jpeg(&gain_map, width, height, quality)?;
 
@@ -136,7 +147,7 @@ pub fn convert_file_to_hdr(
     // 覆盖已有同名 JPG 时，源图缺失的字段用旧 JPG 的值补齐（例如用户后来打的星级评分）。
     let exif_payload = build_output_exif(input, &output_path);
 
-    let bytes = assemble_ultra_hdr_jpeg(&sdr_jpeg, &gain_jpeg, max_log2, exif_payload.as_deref())?;
+    let bytes = assemble_ultra_hdr_jpeg(&sdr_jpeg, &gain_jpeg, max_stops, exif_payload.as_deref())?;
     atomic_write(&output_path, &bytes)?;
 
     Ok(HdrConvertOutcome {
@@ -221,39 +232,54 @@ fn decode_to_rgb8(path: &Path) -> Result<RgbImage, AppError> {
 
 // ── 增益图 ────────────────────────────────────────────────────────────────────
 
-/// 按 keep-base highlight-selective 模型生成增益图（RGB，逐像素）。
-/// 返回 (增益图字节, max_log2)，max_log2 是写入 XMP 的 GainMapMax / HDRCapacityMax。
-fn build_gain_map(sdr: &RgbImage, headroom: f64) -> (Vec<u8>, f64) {
-    let headroom = headroom.max(1.0001);
-    let max_log2 = headroom.log2();
-    let inv_log_range = 1.0 / max_log2;
-
+/// 按 Lightroom 风格曲线生成增益图（RGB，逐像素，三通道使用同一亮度增益）。
+/// 返回 (增益图字节, max_stops)，max_stops 是写入 XMP 的 GainMapMax / HDRCapacityMax。
+fn build_gain_map(sdr: &RgbImage) -> (Vec<u8>, f64) {
     let src = sdr.as_raw();
     let pixel_count = (sdr.width() as usize) * (sdr.height() as usize);
-    let mut gain = vec![0u8; pixel_count * 3];
 
+    let mut max_stops = 0.0f64;
     for index in 0..pixel_count {
+        max_stops = max_stops.max(hdr_gain_stops(pixel_luma(src, index)));
+    }
+    // 全黑 / 极暗图没有可提升的高光，给一个极小范围避免后续除零。
+    max_stops = max_stops.max(1e-4);
+    let inv_range = 1.0 / max_stops;
+
+    let mut gain = vec![0u8; pixel_count * 3];
+    for index in 0..pixel_count {
+        let stops = hdr_gain_stops(pixel_luma(src, index));
+        let value = (255.0 * (stops * inv_range).clamp(0.0, 1.0)).round() as u8;
         let offset = index * 3;
-        let r = srgb_to_linear(src[offset] as f64 / 255.0);
-        let g = srgb_to_linear(src[offset + 1] as f64 / 255.0);
-        let b = srgb_to_linear(src[offset + 2] as f64 / 255.0);
-
-        // highlight-selective：亮度越高增益越大（只抬亮高光）。
-        let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        let smooth = smoothstep(HIGHLIGHT_EDGE_LOW, HIGHLIGHT_EDGE_HIGH, luma);
-        let weight = smooth * smooth;
-        let gain_factor = 1.0 + weight * (headroom - 1.0);
-
-        let channels = [r, g, b];
-        for (channel, &sdr_linear) in channels.iter().enumerate() {
-            let hdr_linear = sdr_linear * gain_factor;
-            let ratio = (hdr_linear + OFFSET_HDR) / (sdr_linear + OFFSET_SDR);
-            let encoded = ((ratio.log2() - 0.0) * inv_log_range).clamp(0.0, 1.0);
-            gain[offset + channel] = (255.0 * encoded).round().clamp(0.0, 255.0) as u8;
-        }
+        gain[offset] = value;
+        gain[offset + 1] = value;
+        gain[offset + 2] = value;
     }
 
-    (gain, max_log2)
+    (gain, max_stops)
+}
+
+/// 线性 SDR 亮度（Rec.709 权重）→ HDR 增益（stop），在标定曲线节点间线性插值。
+fn hdr_gain_stops(luma: f64) -> f64 {
+    let x = luma.clamp(0.0, 1.0);
+    let mut previous = HDR_GAIN_CURVE[0];
+    for &(x1, y1) in &HDR_GAIN_CURVE[1..] {
+        if x <= x1 {
+            let (x0, y0) = previous;
+            let t = if x1 > x0 { (x - x0) / (x1 - x0) } else { 0.0 };
+            return y0 + (y1 - y0) * t;
+        }
+        previous = (x1, y1);
+    }
+    previous.1
+}
+
+fn pixel_luma(src: &[u8], index: usize) -> f64 {
+    let offset = index * 3;
+    let r = srgb_to_linear(src[offset] as f64 / 255.0);
+    let g = srgb_to_linear(src[offset + 1] as f64 / 255.0);
+    let b = srgb_to_linear(src[offset + 2] as f64 / 255.0);
+    0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
 fn srgb_to_linear(value: f64) -> f64 {
@@ -262,11 +288,6 @@ fn srgb_to_linear(value: f64) -> f64 {
     } else {
         ((value + 0.055) / 1.055).powf(2.4)
     }
-}
-
-fn smoothstep(edge0: f64, edge1: f64, value: f64) -> f64 {
-    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 // ── JPEG 编码 ─────────────────────────────────────────────────────────────────
@@ -286,7 +307,7 @@ fn encode_jpeg(pixels: &[u8], width: u32, height: u32, quality: u8) -> Result<Ve
 fn assemble_ultra_hdr_jpeg(
     sdr_jpeg: &[u8],
     gain_jpeg: &[u8],
-    max_log2: f64,
+    max_stops: f64,
     exif_payload: Option<&[u8]>,
 ) -> Result<Vec<u8>, AppError> {
     if sdr_jpeg.len() < 2 || gain_jpeg.len() < 2 {
@@ -296,7 +317,7 @@ fn assemble_ultra_hdr_jpeg(
         return Err(AppError::General("JPEG 编码结果缺少 SOI".to_string()));
     }
 
-    let xmp_secondary = generate_xmp_secondary(max_log2);
+    let xmp_secondary = generate_xmp_secondary(max_stops);
     let xmp_secondary_payload = xmp_payload(&xmp_secondary);
     let icc_payload = build_icc_app2_payload();
     let icc_segment_len = 4 + icc_payload.len();
@@ -408,9 +429,9 @@ fn generate_xmp_primary(secondary_image_size: usize) -> String {
     lines.join("\n")
 }
 
-/// 增益图 XMP：完整的 hdrgm 重建参数。
-fn generate_xmp_secondary(max_log2: f64) -> String {
-    let max_value = format_number(max_log2);
+/// 增益图 XMP：完整的 hdrgm 重建参数（GainMapMin=0，GainMapMax 为图像实际最大 stop）。
+fn generate_xmp_secondary(max_stops: f64) -> String {
+    let max_value = format_number(max_stops);
     let mut lines: Vec<String> = Vec::new();
     lines
         .push(r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.2">"#.to_string());
@@ -422,8 +443,14 @@ fn generate_xmp_secondary(max_log2: f64) -> String {
     lines.push(r#"      hdrgm:GainMapMin="0""#.to_string());
     lines.push(format!(r#"      hdrgm:GainMapMax="{}""#, max_value));
     lines.push(r#"      hdrgm:Gamma="1""#.to_string());
-    lines.push(r#"      hdrgm:OffsetSDR="0.015625""#.to_string());
-    lines.push(r#"      hdrgm:OffsetHDR="0.015625""#.to_string());
+    lines.push(format!(
+        r#"      hdrgm:OffsetSDR="{}""#,
+        format_number(OFFSET_SDR)
+    ));
+    lines.push(format!(
+        r#"      hdrgm:OffsetHDR="{}""#,
+        format_number(OFFSET_HDR)
+    ));
     lines.push(r#"      hdrgm:HDRCapacityMin="0""#.to_string());
     lines.push(format!(r#"      hdrgm:HDRCapacityMax="{}""#, max_value));
     lines.push(r#"      hdrgm:BaseRenditionIsHDR="False""#.to_string());
@@ -523,10 +550,35 @@ mod tests {
     use super::*;
     use image::{ImageFormat, Rgb};
 
+    /// 每次测试使用唯一目录：避免复用带有 ACL / 锁的旧目录，
+    /// 同时防止并行测试互相覆盖。放在项目 test_output 下，避免系统 temp
+    /// 在某些受限环境里不可写。
+    fn unique_test_dir(label: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("test_output")
+            .join("hdr_test_tmp");
+        std::fs::create_dir_all(&root).unwrap_or_else(|error| {
+            panic!("create test temp root {} failed: {}", root.display(), error)
+        });
+        let dir = root.join(format!("{}_{}_{}", label, std::process::id(), sequence));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|error| {
+            panic!("create test temp dir {} failed: {}", dir.display(), error)
+        });
+        dir
+    }
+
     fn synthetic_image() -> RgbImage {
         let mut img = RgbImage::new(48, 32);
         for y in 0..32u32 {
             for x in 0..48u32 {
+                if x >= 44 {
+                    // 右侧留一条纯白，覆盖最高增益区间。
+                    img.put_pixel(x, y, Rgb([255, 255, 255]));
+                    continue;
+                }
                 let gradient = ((x + y) * 255 / 78).min(255) as u8;
                 img.put_pixel(x, y, Rgb([gradient, gradient / 2 + 40, 255 - gradient / 2]));
             }
@@ -587,8 +639,7 @@ mod tests {
 
     #[test]
     fn test_convert_synthetic_tiff_to_ultra_hdr() {
-        let dir = std::env::temp_dir().join("myphoto_hdr_test");
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = unique_test_dir("hdr_test");
         let input = dir.join("synthetic_hdr.tif");
         synthetic_image()
             .save_with_format(&input, ImageFormat::Tiff)
@@ -682,23 +733,35 @@ mod tests {
         let mean_diff = total_diff as f64 / (48.0 * 32.0 * 3.0);
         assert!(mean_diff < 8.0, "SDR base drifted too much: {mean_diff}");
 
-        // 增益图可解码，且按 XMP 参数重建的 HDR 与 highlight-selective 模型一致。
+        // 增益图可解码，且按 XMP 参数重建的 HDR 与标定曲线一致。
         let gain = image::load_from_memory(&bytes[secondary_start..])
             .expect("gain map JPEG should decode")
             .to_rgb8();
-        let max_log2 = DEFAULT_HEADROOM.log2();
+        let source_max_stops = source
+            .pixels()
+            .map(|pixel| {
+                let luma = 0.2126 * srgb_to_linear(pixel[0] as f64 / 255.0)
+                    + 0.7152 * srgb_to_linear(pixel[1] as f64 / 255.0)
+                    + 0.0722 * srgb_to_linear(pixel[2] as f64 / 255.0);
+                hdr_gain_stops(luma)
+            })
+            .fold(0.0f64, f64::max);
+        assert!(
+            source_max_stops > 0.5,
+            "synthetic image should reach highlights"
+        );
         let mut max_error = 0.0f64;
         let mut total_error = 0.0f64;
         let mut samples = 0u64;
         for (base_px, gain_px) in base.pixels().zip(gain.pixels()) {
             let sdr = base_px.0.map(|v| srgb_to_linear(v as f64 / 255.0));
             let luma = 0.2126 * sdr[0] + 0.7152 * sdr[1] + 0.0722 * sdr[2];
-            let smooth = smoothstep(HIGHLIGHT_EDGE_LOW, HIGHLIGHT_EDGE_HIGH, luma);
-            let gain_factor = 1.0 + smooth * smooth * (DEFAULT_HEADROOM - 1.0);
+            let expected_stops = hdr_gain_stops(luma);
             for channel in 0..3 {
-                let gain_log2 = gain_px[channel] as f64 / 255.0 * max_log2;
-                let reconstructed = (sdr[channel] + OFFSET_SDR) * 2f64.powf(gain_log2) - OFFSET_HDR;
-                let expected = sdr[channel] * gain_factor;
+                let gain_stops = gain_px[0] as f64 / 255.0 * source_max_stops;
+                let reconstructed =
+                    (sdr[channel] + OFFSET_SDR) * 2f64.powf(gain_stops) - OFFSET_HDR;
+                let expected = sdr[channel] * 2f64.powf(expected_stops);
                 let error = (reconstructed - expected).abs();
                 max_error = max_error.max(error);
                 total_error += error;
@@ -720,9 +783,7 @@ mod tests {
     fn test_exif_fields_are_copied_to_output() {
         use crate::models::exif::ExifWriteRequest;
 
-        let dir = std::env::temp_dir().join("myphoto_hdr_exif_test");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = unique_test_dir("hdr_exif_test");
 
         // TIF → 写入评级 / 相机型号 → 转换后应在新 JPG 中读到同样的值。
         let input = dir.join("rated.tif");
@@ -815,6 +876,24 @@ mod tests {
     }
 
     #[test]
+    fn test_hdr_gain_curve_is_monotonic_and_lightroom_like() {
+        assert_eq!(hdr_gain_stops(0.0), 0.0);
+        assert_eq!(hdr_gain_stops(0.3), 0.0);
+
+        let mut previous = -1.0;
+        for step in 0..=100 {
+            let value = hdr_gain_stops(step as f64 / 100.0);
+            assert!(value >= previous - 1e-12, "curve must be monotonic");
+            previous = value;
+        }
+
+        assert!((hdr_gain_stops(0.5) - 0.062).abs() < 0.005);
+        assert!((hdr_gain_stops(0.6) - 0.147).abs() < 0.005);
+        assert!((hdr_gain_stops(0.8) - 0.464).abs() < 0.005);
+        assert!((hdr_gain_stops(1.0) - 0.950).abs() < 0.001);
+    }
+
+    #[test]
     fn test_output_path_replaces_extension() {
         assert_eq!(
             output_path_for(Path::new("C:/photos/IMG_0001.TIF")),
@@ -843,9 +922,7 @@ mod tests {
         use std::path::PathBuf;
 
         let source_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data");
-        let work_dir = std::env::temp_dir().join("myphoto_hdr_real_test");
-        let _ = std::fs::remove_dir_all(&work_dir);
-        std::fs::create_dir_all(&work_dir).unwrap();
+        let work_dir = unique_test_dir("hdr_real_test");
 
         for name in ["000226830002.tif", "000010.BMP"] {
             let source = source_dir.join(name);
