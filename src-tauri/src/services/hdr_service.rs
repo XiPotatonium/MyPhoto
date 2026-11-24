@@ -997,4 +997,103 @@ mod tests {
             );
         }
     }
+
+    /// 输出路径必须留在源文件所在目录：不同文件夹里的同名源图各自输出，
+    /// 不会互相覆盖（可以同时转换多个文件夹里的同名照片）。
+    #[test]
+    fn test_output_path_stays_in_source_folder() {
+        let a = output_path_for(Path::new("C:/photos/2026-a/48370001.TIF")).unwrap();
+        let b = output_path_for(Path::new("C:/photos/2026-b/48370001.TIF")).unwrap();
+        assert_eq!(a, PathBuf::from("C:/photos/2026-a/48370001.jpg"));
+        assert_eq!(b, PathBuf::from("C:/photos/2026-b/48370001.jpg"));
+        assert_ne!(a, b, "不同目录的同名源图不能输出到同一路径");
+
+        // 同一目录下 .TIF 与 .BMP 同主名仍会映射到同一个输出（后转的覆盖先转的）。
+        assert_eq!(
+            output_path_for(Path::new("C:/photos/2026-a/48370001.BMP")),
+            Some(a)
+        );
+    }
+
+    /// 两张源图映射到同一输出、或两个批次同时转同一张图时，写盘必须是
+    /// 「整份覆盖」：不能出现两次写入的混合内容，也不能留下 .tmp 残留。
+    #[test]
+    fn test_atomic_write_concurrent_same_target_leaves_one_complete_file() {
+        let dir = unique_test_dir("hdr_atomic_race");
+        let target = dir.join("same_stem.jpg");
+        let first = vec![0xAAu8; 1 << 20];
+        let second = vec![0xBBu8; 1 << 20];
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| atomic_write(&target, &first).unwrap());
+            scope.spawn(|| atomic_write(&target, &second).unwrap());
+        });
+
+        let written = std::fs::read(&target).unwrap();
+        assert!(
+            written == first || written == second,
+            "并发写同一输出产生了混合内容"
+        );
+
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "残留临时文件: {leftovers:?}");
+    }
+
+    /// EXIF 批量写入会重写 JPEG 的 APP1 段（长度可能变化），必须保证
+    /// Ultra HDR 的增益图（MPF 第二张图）与 hdrgm 参数原样保留。
+    #[test]
+    fn test_exif_write_keeps_hdr_gain_map_intact() {
+        use crate::models::exif::ExifWriteRequest;
+
+        let dir = unique_test_dir("hdr_exif_rewrite");
+        let input = dir.join("hdr_source.tif");
+        synthetic_image()
+            .save_with_format(&input, ImageFormat::Tiff)
+            .unwrap();
+
+        let outcome = convert_file_to_hdr(&input, None).expect("conversion should succeed");
+        let path = outcome.output_path.clone();
+        let before = std::fs::read(&path).unwrap();
+        let (before_start, before_size) = secondary_image_location(&before);
+        assert_eq!(before_start + before_size, before.len());
+        let gain_map = before[before_start..].to_vec();
+
+        let request = ExifWriteRequest {
+            camera_model: Some("GainMap Check".to_string()),
+            gps_latitude: Some(30.3867),
+            gps_longitude: Some(119.9924),
+            ..Default::default()
+        };
+        crate::services::exif_service::write_exif_fields(
+            &[path.to_string_lossy().to_string()],
+            &request,
+        )
+        .expect("exif write should succeed");
+
+        let after = std::fs::read(&path).unwrap();
+        assert_eq!(after[0..2], [0xFF, MARKER_SOI]);
+        assert_eq!(
+            secondary_image_location(&after),
+            (after.len() - gain_map.len(), gain_map.len()),
+            "MPF 增益图偏移在 EXIF 写入后失效"
+        );
+        assert_eq!(
+            &after[after.len() - gain_map.len()..],
+            gain_map.as_slice(),
+            "增益图字节被改写"
+        );
+
+        // 主图 XMP 仍需声明 gain map，应用与查看器才认得出 HDR。
+        let header = String::from_utf8_lossy(&after[..4096.min(after.len())]).to_string();
+        assert!(header.contains("hdrgm:Version"), "EXIF 写入后丢失 hdrgm XMP");
+
+        // EXIF 字段本身要生效。
+        let info = exif_service::read_exif(&path).unwrap();
+        assert_eq!(info.camera_model.as_deref(), Some("GainMap Check"));
+    }
 }

@@ -11,10 +11,40 @@ use crate::models::exif::{ExifInfo, ExifWriteRequest};
 /// Write data to a file atomically by first writing to a temporary file
 /// in the same directory, then renaming it over the target path.
 /// This prevents file corruption if the process is interrupted mid-write.
+///
+/// 临时文件名必须**唯一**：批量写 EXIF 时，同一个 base name 的 TIF 与其同名 JPG
+/// 会被同时提交（`48370003.TIF` 与 `48370003.jpg`），并发执行时若沿用
+/// `stem.tmp`，两条写入会共用同一个临时文件，后写的一方会把前一方的内容覆盖掉，
+/// 再被对方 rename 走，结果就是把 TIFF 内容写进了 .jpg，并让另一方 rename
+/// 报“找不到文件”。用 pid + 进程内自增序号保证每个写入者独占自己的临时文件。
 pub fn atomic_write(file_path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp_path = file_path.with_extension("tmp");
-    std::fs::write(&tmp_path, data)?;
-    std::fs::rename(&tmp_path, file_path)
+    let tmp_path = exif_temp_path(file_path);
+
+    if let Err(error) = std::fs::write(&tmp_path, data) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&tmp_path, file_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// 为一次写入分配独占的临时文件路径（与目标同目录，便于原子 rename）。
+///
+/// 用 pid + 进程内自增序号：同一目录下 `X.TIF` 与 `X.jpg` 会同时写，
+/// 若沿用 `stem.tmp` 两者就共用同一个临时文件（见 `atomic_write` 的说明）。
+fn exif_temp_path(file_path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    file_path.with_extension(format!(
+        "myphoto-{}-{}.tmp",
+        std::process::id(),
+        sequence
+    ))
 }
 
 // ── EXIF Read Helpers ─────────────────────────────────────────────────────────
@@ -697,4 +727,35 @@ pub(super) fn serialize_ifd(entries: &[TiffIfdEntry], next_ifd_offset: u32, bo: 
     }
     push_u32(&mut buf, next_ifd_offset, bo);
     buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// 同一 base name 的 TIF 与 JPG 会被批量任务并发写入，必须各自拿到独立的
+    /// 临时文件路径。旧实现用 `stem.tmp`，两者共用 `48370003.tmp`，导致
+    /// TIFF 内容被写进 `48370003.jpg`，另一边的 rename 报“找不到文件”。
+    #[test]
+    fn exif_temp_path_is_unique_per_target_and_per_call() {
+        let tif = PathBuf::from(r"C:\photos\48370003.TIF");
+        let jpg = PathBuf::from(r"C:\photos\48370003.jpg");
+
+        assert_ne!(
+            exif_temp_path(&tif),
+            exif_temp_path(&jpg),
+            "TIF 与同名 JPG 不能共用临时文件"
+        );
+        assert_ne!(
+            exif_temp_path(&tif),
+            exif_temp_path(&tif),
+            "同一个目标连续两次写入也不能复用临时文件"
+        );
+
+        // rename 只有在同目录时才保证同卷原子性
+        let tmp = exif_temp_path(&tif);
+        assert_eq!(tmp.parent(), tif.parent());
+        assert_ne!(tmp, tif);
+    }
 }

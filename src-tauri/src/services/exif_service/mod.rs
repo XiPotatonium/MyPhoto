@@ -322,4 +322,70 @@ mod tests {
         let (w, h) = dims.unwrap();
         assert!(w > 0 && h > 0, "Dimensions should be positive: {}x{}", w, h);
     }
+
+    /// 回归测试：同一 base name 的 TIF 与 JPG 并发写 EXIF 时，
+    /// 两边都必须保留自己的内容。
+    ///
+    /// 历史上 `common::atomic_write` 用 `stem.tmp` 作临时文件，
+    /// `X.TIF` 与 `X.jpg` 会共用 `X.tmp`：批量写时并发跑，就会把 TIFF 内容
+    /// 写进 .jpg，同时让 .TIF 的 rename 报“找不到文件”。
+    #[test]
+    fn test_concurrent_write_same_stem_tiff_and_jpg_keeps_own_content() {
+        use std::io::Read;
+        use std::path::Path;
+
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let data_dir = root.join("test_data");
+        let dir = root
+            .join("test_output")
+            .join(format!("same_stem_race_{}", std::process::id()));
+
+        let file_head = |path: &Path| -> Vec<u8> {
+            let mut file = std::fs::File::open(path).expect("open for head");
+            let mut head = [0u8; 2];
+            file.read_exact(&mut head).expect("read head");
+            head.to_vec()
+        };
+
+        for round in 0..3 {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let tif_path = dir.join("1234.TIF");
+            let jpg_path = dir.join("1234.jpg");
+            std::fs::copy(data_dir.join("000226830002.tif"), &tif_path).unwrap();
+            std::fs::copy(data_dir.join("sample.jpg"), &jpg_path).unwrap();
+
+            let tif_req = ExifWriteRequest {
+                camera_model: Some("ONLY-TIFF".to_string()),
+                ..Default::default()
+            };
+            let jpg_req = ExifWriteRequest {
+                camera_model: Some("ONLY-JPEG".to_string()),
+                ..Default::default()
+            };
+
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    let _ = tiff::write_exif_fields_tiff(&tif_path, &tif_req);
+                });
+                scope.spawn(|| {
+                    let _ = jpg::write_exif_fields_jpg(&jpg_path, &jpg_req);
+                });
+            });
+
+            assert_eq!(
+                file_head(&tif_path),
+                b"II".to_vec(),
+                "round {round}: .TIF 里出现了 JPEG 内容（临时文件重名冲突）"
+            );
+            assert_eq!(
+                file_head(&jpg_path),
+                vec![0xFF, 0xD8],
+                "round {round}: .jpg 里出现了 TIFF 内容（临时文件重名冲突）"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
